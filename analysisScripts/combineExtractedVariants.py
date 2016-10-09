@@ -194,7 +194,11 @@ class ExtractedVariantFile(object):
       currentContigIndex = tumorContigList.index(self.currentLine.contig)
       while currentContigIndex < searchContigIndex and not self.completed:  #race ahead to the contig of interest if not already there
          self.loadNextLine()
-         currentContigIndex = tumorContigList.index(self.currentLine.contig)
+         try:
+            currentContigIndex = tumorContigList.index(self.currentLine.contig)
+         except ValueError:
+            continue  #if the current contig we are looking at doesn't even exist in the tumor sample, we continue to iterate over it without doing anything to it until we reach a shard contig
+            #raise RuntimeError("Unable to find contig %s in tumorContigList." %(self.currentLine.contig))
       if self.completed:
          return False
       if currentContigIndex > searchContigIndex:  #went past the contig of interest without finding it
@@ -232,6 +236,8 @@ class ExtractedVariantFile(object):
       if self.completed:
          return False
       self.loadNextLine()
+      if self.completed:
+         return False
       locusVarTable = {self.currentLine.variant : self.currentLine}
       while self.subsequentLineMatches():
          self.loadNextLine()

@@ -118,9 +118,9 @@ class JobList():
         self.extractNormalVsNeurosphere = programRunners.ExtractVariantsNormal(args.sampleName + ".norm2neurosphere", self.mPileupNormal.mPileupOut, self.extractNeurosphere.targetList, "normal2neurosphere", minSupport = args.coverageRequirement, clobber = self.extractNormalVsTumor.clobber, outputDirectory = args.outputDirectory)
         self.extractNormalVsAvatar = programRunners.ExtractVariantsNormal(args.sampleName + ".norm2avatar", self.mPileupNormal.mPileupOut, self.extractAvatar.targetList, "normal2avatar", minSupport = args.coverageRequirement, clobber = self.extractNormalVsNeurosphere.clobber, outputDirectory = args.outputDirectory)
         #generate combines outputs
-        self.combineNormalVsTumor = programRunners.CombineExtractedVariants(args.sampleName + ".tumorVcf", self.extractTumor.variantsOut, self.extractNormalVsTumor.variantsOut , "tumorToNormal", self.extractNormalVsTumor.clobber, args.outputDirectory)
-        self.combineNormalVsNeurosphere = programRunners.CombineExtractedVariants(args.sampleName + ".sphereVcf", self.extractNeurosphere.variantsOut, self.extractNormalVsNeurosphere.variantsOut , "tumorToNeurosphere", self.combineNormalVsTumor.clobber, args.outputDirectory)
-        self.combineNormalVsAvatar = programRunners.CombineExtractedVariants(args.sampleName + ".avatarVcf", self.extractAvatar.variantsOut, self.extractNormalVsAvatar.variantsOut , "tumorToAvatar", self.combineNormalVsNeurosphere.clobber, args.outputDirectory)
+        self.combineNormalVsTumor = programRunners.CombineExtractedVariants(args.sampleName + ".tumorVcf", self.extractTumor.variantsOut, self.extractNormalVsTumor.variantsOut , "normalToTumor", self.extractNormalVsTumor.clobber, args.outputDirectory)
+        self.combineNormalVsNeurosphere = programRunners.CombineExtractedVariants(args.sampleName + ".sphereVcf", self.extractNeurosphere.variantsOut, self.extractNormalVsNeurosphere.variantsOut , "normalToNeurosphere", self.combineNormalVsTumor.clobber, args.outputDirectory)
+        self.combineNormalVsAvatar = programRunners.CombineExtractedVariants(args.sampleName + ".avatarVcf", self.extractAvatar.variantsOut, self.extractNormalVsAvatar.variantsOut , "normalToAvatar", self.combineNormalVsNeurosphere.clobber, args.outputDirectory)
         self.commandList = [self.alignNormal.pe1Command,
                             self.alignNormal.pe2Command,
                             self.alignNormal.samCommand,
