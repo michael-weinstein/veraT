@@ -4,95 +4,20 @@ import os
 global programPaths
 programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
                 "java" : os.getcwd() + "/bin/jre1.8.0_77/bin/java",
-                "picard" : os.getcwd() + "/bin/picard-tools-2.1.1/picard.jar",
                 "samtools" : "/u/local/apps/samtools/1.2/gcc-4.4.7/bin/samtools",
                 "extractVariants" : os.getcwd() + "/analysisScripts/extractVariants.py",
                 "combineVariants" : os.getcwd() + "/analysisScripts/combineExtractedVariants.py",
-                "python3" : "/u/local/apps/python/3.4.3/bin/python3"}
-
-def yesAnswer(question):  #asks the question passed in and returns True if the answer is yes, False if the answer is no, and keeps the user in a loop until one of those is given.  Also useful for walking students through basic logical python functions
-    answer = False  #initializes the answer variable to false.  Not absolutely necessary, since it should be undefined at this point and test to false, but explicit is always better than implicit
-    while not answer:  #enters the loop and stays in it until answer is equal to True
-        print (question + ' (Y/N)')  #Asks the question contained in the argument passed into this subroutine
-        answer = input('>>') #sets answer equal to some value input by the user
-        if str(answer) == 'y' or str(answer) == 'Y' or str(answer).upper() == 'YES':  #checks if the answer is a valid yes answer
-            return True  #sends back a value of True because of the yes answer
-        elif str(answer) == 'n' or str(answer) == 'N' or str(answer).upper() == 'NO': #checks to see if the answer is a valid form of no
-            return False  #sends back a value of False because it was not a yes answer
-        else: #if the answer is not a value indicating a yes or no
-            print ('Invalid response.')
-            answer = False #set ansewr to false so the loop will continue until a satisfactory answer is given
-
-def stripDirectoryAndExtension(fileName):
-    import os
-    pathSplit = fileName.split(os.sep)
-    fileName = pathSplit[-1]
-    splitName = fileName.split(".")
-    splitNameNoExtension = splitName[:-1]
-    nameNoExtension = ".".join(splitNameNoExtension)
-    return nameNoExtension
-
-def checkForOverwriteRisk(file, sample = "NoneGiven", clobber = False):  #This will check if the user wants to delete the original file for overwriting.  We will delete here to avoid future collisions.  This will also return their desired change to the clobber value as a boolean.
-    import os
-    import time
-    global rerunOfPrevious
-    if os.path.isfile(file):
-        print("Potential collision found for file %s" %(file))
-        fileHandle = open(file, 'rb')  #reading as binary because we don't know what will actually be in there for sure
-        fileSample = fileHandle.read(2000)
-        fileHandle.close()
-        placeholderFound = False
-        if len(fileSample) >= 24:
-            if fileSample[0:24] == b"PLACEHOLDER FOR SAMPLE: ":
-                placeholderFound = True
-                originalHolder = fileSample[24:].decode()
-        if placeholderFound:
-            try:
-                rerun = rerunOfPrevious
-            except NameError:
-                rerun = False
-            if not rerun:
-                if originalHolder == sample:
-                    print("Original placeholder belonged to %s and current run belongs to the same." %(sample))
-                    print("If this is not a rerun of the same sample, please do not continue, as it will likely cause terrible file collisions.")
-                    if not yesAnswer("Is this a rerun?"):
-                        raise RuntimeError("Stopped to avoid collisions")
-                    else:
-                        rerunOfPrevious = True
-                        clobber = True
-        if not clobber and not placeholderFound:
-            if not yesAnswer(file + " already exists. Do you wish to overwrite this file and continue?"):
-                raise RuntimeError("Quit to avoid overwrite of %s." %(file))
-            print("Overwriting %s" %(file))
-        try:
-            if not clobber:
-                time.sleep(7)
-        except KeyboardInterrupt:
-            raise KeyboardInterrupt("Deletion aborted due to keyboard interrupt")
-        os.remove(file)
-        if type(clobber) == type(None):
-            if yesAnswer("Continue to check file collisions?"):
-                clobber = False
-            else:
-                clobber = True
-    #Writing placeholder files to monitor for collisions with future files
-    touchFile = open(file, 'w')
-    touchFile.write("PLACEHOLDER FOR SAMPLE: " + sample)
-    touchFile.close()
-    return clobber
-
-def checkForRequiredFile(fileName, fileDescription, instructions = ""):
-    import os
-    if not os.path.isfile(fileName):
-        if instructions:
-            if not instructions.startswith(" "):
-                instructions = " " + instructions
-        raise FileNotFoundError("Unable to find %s.%s Expected file: %s" %(fileDescription, instructions, fileName))
+                "python3" : "/u/local/apps/python/3.4.3/bin/python3",                
+                "bgzip" : os.getcwd() + "/bin/tabix/tabix-0.2.6/bgzip",
+                "tabix" : os.getcwd() + "/bin/tabix/tabix-0.2.6/tabix",
+                "varscan" : os.getcwd() + "/bin/VarScan.v2.4.0.jar",
+                "bam-readcount" : os.getcwd() + "bin/bam-readcount/bin/bam-readcount"}
 
 class BWAlign(object):
     
     def __init__(self, sampleName, refGenomeFasta, pairedEnd1File, pairedEnd2File = "", cores = 1, qualityThreshold = 5, seedLength = 32, maxMismatchesPerSeed = 2, maximumGapOpens = 1, clobber = None, outputDirectory = ""):
         import os
+        import runnerSupport
         if not outputDirectory:
             self.outputDirectory = ""
         else:
@@ -116,11 +41,11 @@ class BWAlign(object):
         #SANITY CHECK ALL THE THINGS
         if not type(self.pe1) == str or not self.pe1:
             raise RuntimeError("Paired end 1 file must be specified and must be a string.  Value passed was \"%s\"" %(self.pe1))
-        checkForRequiredFile(self.pe1, "paired end 1 file")
+        runnerSupport.checkForRequiredFile(self.pe1, "paired end 1 file")
         if not type(self.pe2) == str:
             raise RuntimeError("Paired end 2 file must be specified and must be a string.  Value passed was \"%s\"" %(self.pe2))
         if self.pe2:
-            checkForRequiredFile(self.pe2, "paired end 2 file")
+            runnerSupport.checkForRequiredFile(self.pe2, "paired end 2 file")
             self.pairedEnd = True
         else:
             self.pairedEnd = False
@@ -148,26 +73,28 @@ class BWAlign(object):
     
     def checkRefGenome(self):
         import os
-        checkForRequiredFile(self.refGenomeFasta, "reference genome file")
-        checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index", "Please move the index to this location or use samtools faidx to create one.")
+        import runnerSupport
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta, "reference genome file")
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index", "Please move the index to this location or use samtools faidx to create one.")
         bwaIndexFileExtensions = [".amb", ".ann", ".bwt", ".pac", ".sa"]
         for extension in bwaIndexFileExtensions:
             indexFile = self.refGenomeFasta + extension
-            checkForRequiredFile(indexFile, "one or more BWA index files", "Please move the index to this location or use bwa index to (re)create one.")
+            runnerSupport.checkForRequiredFile(indexFile, "one or more BWA index files", "Please move the index to this location or use bwa index to (re)create one.")
     
     def makeAndCheckOutputFileNames(self):
+        import runnerSupport
         self.pe1Out = self.outputDirectory + self.sampleName + ".pe1.sai"
-        self.clobber = checkForOverwriteRisk(self.pe1Out, self.sampleName, self.clobber)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.pe1Out, self.sampleName, self.clobber)
         if not self.pairedEnd:
             self.pe2Out = ""
         else:
             self.pe2Out = self.outputDirectory + self.sampleName + ".pe2.sai"
-            self.clobber = checkForOverwriteRisk(self.pe2Out, self.sampleName, self.clobber)
+            self.clobber = runnerSupport.checkForOverwriteRisk(self.pe2Out, self.sampleName, self.clobber)
         self.samOut = self.outputDirectory + self.sampleName + ".sam"
-        self.clobber = checkForOverwriteRisk(self.samOut, self.sampleName, self.clobber)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.samOut, self.sampleName, self.clobber)
                 
     def makeBWAlignCommand(self, inputFile, outputFile):
-        import genericRunners
+        import runnerSupport
         flagValues = {"-q" : self.qualityThreshold,
                       "-l" : self.seedLength,
                       "-k" : self.maxMismatchesPerSeed,
@@ -175,25 +102,25 @@ class BWAlign(object):
                       "-o" : self.maximumGapOpens,
                       "-f" : outputFile}
         bwaArgs = [programPaths["bwa"], "aln", flagValues, self.refGenomeFasta, inputFile]
-        argumentFormatter = genericRunners.ArgumentFormatter(bwaArgs)
+        argumentFormatter = runnerSupport.ArgumentFormatter(bwaArgs)
         bwaCommand = argumentFormatter.argumentString
         return bwaCommand
         
     def makeSAMCommand(self):
-        import genericRunners
+        import runnerSupport
         if self.pairedEnd:
             flagValues = {"-P" : True}  #This is valid and will load everything into memory
                           # "-T" : True,  #Can't find this as a valid argument.  Copied from Catie's email.  Remove if this causes trouble.     It did.
                           # "-t" : self.threads}  #Copied from email as above.  Remove if it causes trouble.  I don't think sampe or samse can multithread operations.  If they can't, consider removing this, as it will slow our resource allocation times.
             bwaArgs = [programPaths["bwa"], "sampe", flagValues, self.refGenomeFasta, self.pe1Out, self.pe2Out, self.pe1, self.pe2, ">", self.samOut]
-            argumentFormatter = genericRunners.ArgumentFormatter(bwaArgs)
+            argumentFormatter = runnerSupport.ArgumentFormatter(bwaArgs)
             bwaCommand = argumentFormatter.argumentString
             return bwaCommand
         else:
             # flagValues = {"-T" : True,  #Can't find this as a valid argument.  Copied from Catie's email.  Remove if this causes trouble.
             #               "-t" : self.threads}  #Copied from email as above.  Remove if it causes trouble.  I don't think sampe or samse can multithread operations.  If they can't, consider removing this, as it will slow our resource allocation times.
             bwaArgs = [programPaths["bwa"], "samse", self.refGenomeFasta, self.pe1, self.pe1Out, ">", self.samOut]
-            argumentFormatter = genericRunners.ArgumentFormatter(bwaArgs)
+            argumentFormatter = runnerSupport.ArgumentFormatter(bwaArgs)
             bwaCommand = argumentFormatter.argumentString
             return bwaCommand
 
@@ -201,6 +128,7 @@ class BWAmem(object):
     
     def __init__(self, sampleName, refGenomeFasta, pairedEnd1File, pairedEnd2File = "", cores = 1, qualityThreshold = 5, seedLength = 32, maxMismatchesPerSeed = 2, maximumGapOpens = 1, clobber = None, outputDirectory = ""):
         import os
+        import runnerSupport
         if not outputDirectory:
             self.outputDirectory = ""
         else:
@@ -224,11 +152,11 @@ class BWAmem(object):
         #SANITY CHECK ALL THE THINGS
         if not type(self.pe1) == str or not self.pe1:
             raise RuntimeError("Paired end 1 file must be specified and must be a string.  Value passed was \"%s\"" %(self.pe1))
-        checkForRequiredFile(self.pe1, "paired end 1 file")
+        runnerSupport.checkForRequiredFile(self.pe1, "paired end 1 file")
         if not type(self.pe2) == str:
             raise RuntimeError("Paired end 2 file must be specified and must be a string.  Value passed was \"%s\"" %(self.pe2))
         if self.pe2:
-            checkForRequiredFile(self.pe2, "paired end 2 file")
+            runnerSupport.checkForRequiredFile(self.pe2, "paired end 2 file")
             self.pairedEnd = True
         else:
             self.pairedEnd = False
@@ -255,127 +183,38 @@ class BWAmem(object):
         self.bwaCommand = self.makeBWACommand()
     
     def checkRefGenome(self):
+        import runnerSupport
         import os
-        checkForRequiredFile(self.refGenomeFasta, "reference genome file")
-        checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index", "Please move the index to this location or use samtools faidx to create one.")
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta, "reference genome file")
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index", "Please move the index to this location or use samtools faidx to create one.")
         bwaIndexFileExtensions = [".amb", ".ann", ".bwt", ".pac", ".sa"]
         for extension in bwaIndexFileExtensions:
             indexFile = self.refGenomeFasta + extension
-            checkForRequiredFile(indexFile, "one or more BWA index files", "Please move the index to this location or use bwa index to (re)create one.")
+            runnerSupport.checkForRequiredFile(indexFile, "one or more BWA index files", "Please move the index to this location or use bwa index to (re)create one.")
     
     def makeAndCheckOutputFileNames(self):
+        import runnerSupport
         self.samOut = self.outputDirectory + self.sampleName + ".sam"
-        self.clobber = checkForOverwriteRisk(self.samOut, self.sampleName, self.clobber)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.samOut, self.sampleName, self.clobber)
                 
     def makeBWACommand(self):
-        import genericRunners
+        import runnerSupport
         flagValues = {}
         if self.pairedEnd:
             inputs = [self.pe1, self.pe2]
         else:
             inputs = self.pe1
         bwaArgs = [programPaths["bwa"], "mem", self.refGenomeFasta, inputs, ">", self.samOut]
-        argumentFormatter = genericRunners.ArgumentFormatter(bwaArgs, delimiter = " ")
+        argumentFormatter = runnerSupport.ArgumentFormatter(bwaArgs, delimiter = " ")
         bwaCommand = argumentFormatter.argumentString
         return bwaCommand
 
-class SAMtoBAM(object):
-    
-    def __init__(self, sampleName, samFile, sort_order = "coordinate", validation_stringency = "LENIENT", create_index = True, clobber = False, outputDirectory = ""):
-        self.sampleName = sampleName
-        if not outputDirectory:
-            self.outputDirectory = ""
-        else:
-            if not os.path.isdir(outputDirectory):
-                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
-            if not outputDirectory.endswith(os.sep):
-                self.outputDirectory = outputDirectory + os.sep
-            else:
-                self.outputDirectory = outputDirectory
-        self.samFile = samFile
-        self.validation_stringency = validation_stringency
-        self.create_index = create_index
-        self.sort_order = sort_order
-        self.clobber = clobber
-        #SANITY TEST ALL THE THINGS
-        checkForRequiredFile(self.samFile, "SAM file to convert to BAM")
-        if not type(self.create_index) == bool:
-            raise RuntimeError("Create index value should be passed as a boolean. Passed value: %s" %(self.create_index))
-        #DONE SANITY CHECKING. FOR NOW.
-        if self.create_index:
-            self.create_index = "true"
-        else:
-            self.create_index = "false"
-        self.makeAndCheckOutputFileNames()
-        self.samToBamCommand = self.createPicardCommand()
-        
-    def makeAndCheckOutputFileNames(self):
-        self.bamOut = self.outputDirectory + self.sampleName + ".bam"
-        self.clobber = checkForOverwriteRisk(self.bamOut, self.sampleName, self.clobber)
-        
-    def createPicardCommand(self):
-        import genericRunners
-        flagValues = {"I" : self.samFile,
-                      "O" : self.bamOut,
-                      "VALIDATION_STRINGENCY" : self.validation_stringency,
-                      "CREATE_INDEX" : self.create_index,
-                      "SORT_ORDER" : self.sort_order}
-        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["picard"], "SortSam", flagValues]
-        argumentFormatter = genericRunners.ArgumentFormatter(picardArgs, "=")
-        picardCommand = argumentFormatter.argumentString
-        return picardCommand
-    
-class Deduplicate(object):
-    
-    def __init__(self, sampleName, bamIn, validation_stringency = "LENIENT", create_index = True, clobber = False, outputDirectory = ""):
-        self.sampleName = sampleName
-        if not outputDirectory:
-            self.outputDirectory = ""
-        else:
-            if not os.path.isdir(outputDirectory):
-                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
-            if not outputDirectory.endswith(os.sep):
-                self.outputDirectory = outputDirectory + os.sep
-            else:
-                self.outputDirectory = outputDirectory
-        self.bamIn = bamIn
-        self.validation_stringency = validation_stringency
-        self.create_index = create_index
-        self.clobber = clobber
-        #SANITY TEST ALL THE THINGS
-        checkForRequiredFile(self.bamIn, "BAM file to deduplicate")
-        if not type(self.create_index) == bool:
-            raise RuntimeError("Create index value should be passed as a boolean. Passed value: %s" %(self.create_index))
-        #DONE SANITY CHECKING. FOR NOW.
-        if self.create_index:
-            self.create_index = "true"
-        else:
-            self.create_index = "false"
-        self.makeAndCheckOutputFileNames()
-        self.deduplicateCommand = self.createPicardCommand()
-        
-    def makeAndCheckOutputFileNames(self):
-        self.bamOut = self.outputDirectory + stripDirectoryAndExtension(self.bamIn) + ".deduped.bam"
-        self.clobber = checkForOverwriteRisk(self.bamOut, self.sampleName, self.clobber)
-        self.metricsOut = self.outputDirectory + stripDirectoryAndExtension(self.bamIn) + "dedupe.metrics"
-        self.clobber = checkForOverwriteRisk(self.metricsOut, self.sampleName, self.clobber)
-        
-    def createPicardCommand(self):
-        import genericRunners
-        flagValues = {"I" : self.bamIn,
-                      "O" : self.bamOut,
-                      "VALIDATION_STRINGENCY" : self.validation_stringency,
-                      "CREATE_INDEX" : self.create_index,
-                      "METRICS_FILE" : self.metricsOut}
-        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["picard"], "MarkDuplicates", flagValues]
-        argumentFormatter = genericRunners.ArgumentFormatter(picardArgs, "=")
-        picardCommand = argumentFormatter.argumentString
-        return picardCommand
-    
 class MPileup(object):
     
-    def __init__(self, sampleName, bamFile, refGenomeFasta, disablePerBaseAlignmentQuality = True, minBaseQuality = 20, maxDepth = 1000000, countOrphans = True, clobber = False, outputDirectory = ""):
+    def __init__(self, sampleName, bamFile, refGenomeFasta, disablePerBaseAlignmentQuality = False, minBaseQuality = False, maxDepth = False, countOrphans = False, bgzip = False, clobber = False, outputDirectory = ""):
+        import runnerSupport
         self.sampleName = sampleName
+        self.bgzip = bgzip
         if not outputDirectory:
             self.outputDirectory = ""
         else:
@@ -395,11 +234,11 @@ class MPileup(object):
         #SANITY CHECKING
         if not type(self.bamFile) == str:
             raise RuntimeError("BAM file name should be string. Passed %s" %(self.bamFile))
-        checkForRequiredFile(self.bamFile, "BAM file to analyze")
+        runnerSupport.checkForRequiredFile(self.bamFile, "BAM file to analyze")
         if not type(self.refGenomeFasta) == str:
             raise RuntimeError("Reference genome fasta file name should be a string. Passed %s" %(self.refGenomeFasta))
-        checkForRequiredFile(self.refGenomeFasta, "reference genome fasta")
-        checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index file", "Please move the index file to this location or create one using samtools faidx.")
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta, "reference genome fasta")
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index file", "Please move the index file to this location or create one using samtools faidx.")
         if not type(self.minBaseQuality) == int and self.minBaseQuality > 0:
             raise RuntimeError("Minimum base quality must be a positive integer.")
         if not type(self.maxDepth) == int and self.maxDepth > 0:
@@ -411,24 +250,32 @@ class MPileup(object):
         self.mPileupCommand = self.createSamtoolsCommand()
         
     def makeAndCheckOutputFileNames(self):
-        self.mPileupOut = self.outputDirectory + stripDirectoryAndExtension(self.bamFile) + ".mpileup"
-        self.clobber = checkForOverwriteRisk(self.mPileupOut, self.sampleName, self.clobber)
+        import runnerSupport
+        self.mPileupOut = self.outputDirectory + self.sampleName + ".mpileup"
+        if self.bgzip:
+            self.mPileupOut += ".bgz"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.mPileupOut, self.sampleName, self.clobber)
         
     def createSamtoolsCommand(self):
-        import genericRunners
+        import runnerSupport
         flagValues = {"-B" : self.disablePerBaseAlignmentQuality,
                       "-Q" : self.minBaseQuality,
                       "-d" : self.maxDepth,
                       "-A" : self.countOrphans,
                       "-f" : self.refGenomeFasta}
-        samtoolsArgs = [programPaths["samtools"], "mpileup", flagValues, self.bamFile, ">", self.mPileupOut]
-        argumentFormatter = genericRunners.ArgumentFormatter(samtoolsArgs)
+        if self.bgzip:
+            outputTee = ">" + programPaths["bgzip"] + "-c > " + self.mPileupOut
+        else:
+            outputTee = ">" + self.mPileupOut
+        samtoolsArgs = [programPaths["samtools"], "mpileup", flagValues, self.bamFile, outputTee]
+        argumentFormatter = runnerSupport.ArgumentFormatter(samtoolsArgs)
         samtoolsCommand = argumentFormatter.argumentString
         return samtoolsCommand
     
 class ExtractVariantsTumor(object):
     
     def __init__(self, sampleName, pileupInput, clobber = False, minSupport = 0, requireDoubleStranded = False, outputDirectory = ""):
+        import runnerSupport
         self.sampleName = sampleName
         self.requireDoubleStranded = requireDoubleStranded
         if not outputDirectory:
@@ -446,32 +293,34 @@ class ExtractVariantsTumor(object):
         #sanity checking
         if not type(self.pileupInput) == str:
             raise RuntimeError("Input VCF file name must be passed as a string. Passed: %s" %(self.pileupInput))
-        checkForRequiredFile(self.pileupInput, "VCF input file")
+        runnerSupport.checkForRequiredFile(self.pileupInput, "VCF input file")
         #done sanity checking
         self.makeAndCheckOutputFileNames()
         self.extractCommand = self.createPileupToVCFCommand()    
     
     def makeAndCheckOutputFileNames(self):
-        self.variantsOut = self.outputDirectory + stripDirectoryAndExtension(self.pileupInput) + ".variants"
-        self.targetList = self.outputDirectory + stripDirectoryAndExtension(self.pileupInput) + ".targets"
-        self.clobber = checkForOverwriteRisk(self.variantsOut, self.sampleName, self.clobber)
-        self.clobber = checkForOverwriteRisk(self.targetList, self.sampleName, self.clobber)
+        import runnerSupport
+        self.variantsOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.pileupInput) + ".variants"
+        self.targetList = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.pileupInput) + ".targets"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.variantsOut, self.sampleName, self.clobber)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.targetList, self.sampleName, self.clobber)
     
     def createPileupToVCFCommand(self):
-        import genericRunners
+        import runnerSupport
         flagValues = {"-f" : self.pileupInput,
                       "-o" : self.variantsOut,
                       "-n" : self.minSupport,
                       "-t" : self.targetList,
                       "-d" : self.requireDoubleStranded}
         pileupCommandArgs = [programPaths["python3"], programPaths["extractVariants"], flagValues]
-        argumentFormatter = genericRunners.ArgumentFormatter(pileupCommandArgs)
+        argumentFormatter = runnerSupport.ArgumentFormatter(pileupCommandArgs)
         pileupCommand = argumentFormatter.argumentString
         return pileupCommand
     
 class ExtractVariantsNormal(object):
     
     def __init__(self, sampleName, pileupInput, targetList, comparison, minSupport = 0, clobber = False, outputDirectory = ""):
+        import runnerSupport
         self.sampleName = sampleName
         self.minSupport = minSupport
         if not outputDirectory:
@@ -493,30 +342,32 @@ class ExtractVariantsNormal(object):
         #sanity checking
         if not type(self.pileupInput) == str:
             raise RuntimeError("Input VCF file name must be passed as a string. Passed: %s" %(self.pileupInput))
-        checkForRequiredFile(self.pileupInput, "VCF input file")
-        checkForRequiredFile(self.targetList, "List of targets from tumor to do ")
+        runnerSupport.checkForRequiredFile(self.pileupInput, "VCF input file")
+        runnerSupport.checkForRequiredFile(self.targetList, "List of targets from tumor to do ")
         #done sanity checking
         self.makeAndCheckOutputFileNames()
         self.extractCommand = self.createPileupToVCFCommand()
     
     def makeAndCheckOutputFileNames(self):
-        self.variantsOut = self.outputDirectory + stripDirectoryAndExtension(self.pileupInput) + self.comparison + ".variants"
-        self.clobber = checkForOverwriteRisk(self.variantsOut, self.sampleName, self.clobber)
+        import runnerSupport
+        self.variantsOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.pileupInput) + self.comparison + ".variants"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.variantsOut, self.sampleName, self.clobber)
     
     def createPileupToVCFCommand(self):
-        import genericRunners
+        import runnerSupport
         flagValues = {"-f" : self.pileupInput,
                       "-o" : self.variantsOut,
                       "-n" : self.minSupport,
                       "-m" : self.targetList}
         pileupCommandArgs = [programPaths["python3"], programPaths["extractVariants"], flagValues]
-        argumentFormatter = genericRunners.ArgumentFormatter(pileupCommandArgs)
+        argumentFormatter = runnerSupport.ArgumentFormatter(pileupCommandArgs)
         pileupCommand = argumentFormatter.argumentString
         return pileupCommand
     
 class CombineExtractedVariants(object):
     
     def __init__(self, sampleName, tumorFileName, normalFileName, comparison, clobber = False, outputDirectory = ""):
+        import runnerSupport
         self.sampleName = sampleName
         if not outputDirectory:
             self.outputDirectory = ""
@@ -535,24 +386,253 @@ class CombineExtractedVariants(object):
         self.normalFile = normalFileName
         self.clobber = clobber
         #sanity checking
-        checkForRequiredFile(self.tumorFile, "Tumor input file")
-        checkForRequiredFile(self.normalFile, "Normal input file")
+        runnerSupport.checkForRequiredFile(self.tumorFile, "Tumor input file")
+        runnerSupport.checkForRequiredFile(self.normalFile, "Normal input file")
         #done sanity checking
         self.makeAndCheckOutputFileNames()
         self.combineCommand = self.createPileupToVCFCommand()    
     
     def makeAndCheckOutputFileNames(self):
-        self.vcfOut = self.outputDirectory + stripDirectoryAndExtension(self.normalFile) + self.comparison + ".vcf"
-        self.clobber = checkForOverwriteRisk(self.vcfOut, self.sampleName, self.clobber)
+        import runnerSupport
+        self.vcfOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.normalFile) + self.comparison + ".vcf"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.vcfOut, self.sampleName, self.clobber)
     
     def createPileupToVCFCommand(self):
-        import genericRunners
+        import runnerSupport
         flagValues = {"-t" : self.tumorFile,
                       "-n" : self.normalFile,
                       "-o" : self.vcfOut}
         combineCommandArgs = [programPaths["python3"], programPaths["combineVariants"], flagValues]
-        argumentFormatter = genericRunners.ArgumentFormatter(combineCommandArgs)
+        argumentFormatter = runnerSupport.ArgumentFormatter(combineCommandArgs)
         combineCommand = argumentFormatter.argumentString
         return combineCommand
+
+class Tabix(object):
+    
+    def __init__(self, sampleName, pileupIn, sequenceColumn = 1, beginColumn = 2, endColumn = 2, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.sampleName = sampleName
+        self.pileupIn = pileupIn
+        self.sequenceColumn = sequenceColumn
+        self.beginColumn = beginColumn
+        self.endColumn = endColumn
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(self.bamIn, "BAM file for depth check")
+        if not type(self.sequenceColumn) == int:
+            raise RuntimeError("Sequence column must be an integer.")
+        if not type(self.beginColumn) == int:
+            raise RuntimeError("Begin column must be an integer.")
+        if not type(self.endColumn) == int:
+            raise RuntimeError("End column must be an integer.")
+        runnerSupport.checkForRequiredFile(self.pileupIn, "Pileup file to index")
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.tabixCommand = self.createTabixCommand()
         
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.indexOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.pileupIn) + ".bgz.tbi" 
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.indexOut, self.sampleName, self.clobber)
         
+    def createTabixCommand(self):
+        import runnerSupport
+        flagValues = {"-s" : self.sequenceColumn,
+                      "-b" : self.beginColumn,
+                      "-e" : self.endColumn}
+        gatkArgs = [programPaths["tabix"], flagValues, self.pileupIn]
+        argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
+        depthCommand = argumentFormatter.argumentString
+        return (depthCommand)
+    
+class ViewSAMtoBAM(object):
+    
+    def __init__(self, sampleName, samFile, refGenomeFasta, samInput = True, bamOutput = True, includeHeaders = True, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.samInput = samInput
+        self.bamOutput = bamOutput
+        self.includeHeaders = includeHeaders
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        self.samFile = samFile
+        self.refGenomeFasta = refGenomeFasta
+        self.clobber = clobber
+        #SANITY CHECKING
+        runnerSupport.checkTypes([self.samInput, self.bamOutput, self.includeHeaders], bool)
+        if not type(self.samFile) == str:
+            raise RuntimeError("BAM file name should be string. Passed %s" %(self.samFile))
+        runnerSupport.checkForRequiredFile(self.samFile, "SAM file to convert")
+        if not type(self.refGenomeFasta) == str:
+            raise RuntimeError("Reference genome fasta file name should be a string. Passed %s" %(self.refGenomeFasta))
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta, "reference genome fasta")
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index file", "Please move the index file to this location or create one using samtools faidx.")
+        #Done sanity checking
+        self.makeAndCheckOutputFileNames()
+        self.viewCommand = self.createSamtoolsCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.bamOut = self.outputDirectory + self.sampleName + ".bam"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.bamOut, self.sampleName, self.clobber)
+        
+    def createSamtoolsCommand(self):
+        import runnerSupport
+        flagValues = {"-S" : self.samInput,
+                      "-b" : self.bamOutput,
+                      "-h" : self.includeHeaders,
+                      "-T" : self.refGenomeFasta,
+                      "-o" : self.bamOut}
+        samtoolsArgs = [programPaths["samtools"], "view", flagValues, self.samFile]
+        argumentFormatter = runnerSupport.ArgumentFormatter(samtoolsArgs)
+        samtoolsCommand = argumentFormatter.argumentString
+        return samtoolsCommand
+    
+class GrepFilter(object):
+    
+    def __init__(self, sampleName, inputFile, outputFile, filterString, filterOut = False, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.clobber = clobber
+        self.sampleName = sampleName
+        self.inputFile = inputFile
+        self.outputFile = outputFile
+        self.filterString = filterString
+        self.filterOut = filterOut
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY CHECKING
+        runnerSupport.checkTypes([self.filterOut], bool)
+        runnerSupport.checkForRequiredFile(self.inputFile, "File to filter")
+        #Done sanity checking
+        self.makeAndCheckOutputFileNames()
+        self.grepCommand = self.createGrepCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.outputFile, self.sampleName, self.clobber)
+        
+    def createGrepCommand(self):
+        import runnerSupport
+        flagValues = {"-v" : self.filterOut}
+        grepArgs = ["grep", flagValues, self.filterString, self.inputFile, ">", self.outputFile]
+        argumentFormatter = runnerSupport.ArgumentFormatter(grepArgs)
+        grepCommand = argumentFormatter.argumentString
+        return grepCommand
+    
+class Varscan(object):
+    
+    def __init__(self, sampleName, normalPileup, tumorPileup, minimumTumorVariantFrequency = 0.05, tumorPurity = 1.0, homozygousFrequency = 0.75, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.clobber = clobber
+        self.sampleName = sampleName
+        self.normalPileup = normalPileup
+        self.tumorPileup = tumorPileup
+        self.minimumTumorVariantFrequency = minimumTumorVariantFrequency
+        self.tumorPurity = tumorPurity
+        self.homozygousFrequency = homozygousFrequency
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(self.normalPileup, "Normal mPileup file")
+        runnerSupport.checkForRequiredFile(self.tumorPileup, "Tumor mPileup file")
+        runnerSupport.checkTypes([self.minimumTumorVariantFrequency, self.tumorPurity, self.homozygousFrequency], float)
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.varscanSomaticCommand, self.varscanProcessSNPCommand, self.varscanProcessIndelCommand = self.createVarscanCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.snpOut = self.outputDirectory + self.sampleName + "varscan.snp"
+        self.indelOut = self.outputDirectory + self.sampleName + "varscan.indel"
+        self.HcSNPOut = self.snpOut + "Somatic.hc.positions"
+        self.HcIndelOut = self.indelOut + "Somatic.hc.positions"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.snpOut, self.sampleName, self.clobber)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.indelOut, self.sampleName, self.clobber)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.HcSNPOut, self.sampleName, self.clobber)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.HcIndelOut, self.sampleName, self.clobber)
+
+    def createVarscanCommand(self):
+        import runnerSupport
+        flagValuesSomatic = {"--min-var-freq" : self.minimumTumorVariantFrequency,
+                             "--tumor-purity" : self.tumorPurity,
+                             "--min-freq-for-hom" : self.homozygousFrequency}
+        flagValuesProcess = {"--min-tumor-freq" : self.minimumTumorVariantFrequency}
+        somaticArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "somatic", self.normalPileup, self.tumorPileup, self.sampleName + ".varscan" + flagValuesSomatic]
+        snpArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "processSomatic", self.snpOut, flagValuesProcess]
+        indelArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "processSomatic", self.indelOut, flagValuesProcess]
+        argumentFormatter = runnerSupport.ArgumentFormatter(somaticArgs)
+        somaticCommand = argumentFormatter.argumentString
+        argumentFormatter = runnerSupport.ArgumentFormatter(snpArgs)
+        snpCommand = argumentFormatter.argumentString
+        argumentFormatter = runnerSupport.ArgumentFormatter(indelArgs)
+        indelCommand = argumentFormatter.argumentString
+        return (somaticCommand, snpCommand, indelCommand)
+    
+class BAMReadCount(object):
+    
+    def __init__(self, sampleName, bamIn, inputPositions, refGenomeFasta, maxWarnings = 10, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.bamIn = bamIn
+        self.clobber = clobber
+        self.refGenomeFasta = refGenomeFasta
+        self.sampleName = sampleName
+        self.maxWarnings = maxWarnings
+        self.inputPositions = inputPositions
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(self.inputPositions, "Input position list")
+        runnerSupport.checkTypes([self.maxWarnings], int)
+        runnerSupport.checkForRequiredFile(self.bamIn, "BAM file to analyze for read counts")
+        #DONE SANITY CHECKING. FOR NOW.
+        self.checkRefGenome()
+        self.makeAndCheckOutputFileNames()
+        bamReadcountCommand = self.createBAMReadcountCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.readcountOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.inputPositions) + ".readcount"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.readcountOut, self.sampleName, self.clobber)
+
+    def checkRefGenome(self):
+        import runnerSupport
+        import os
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta, "reference genome file")
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index", "Please move the index to this location or use samtools faidx to create one.")
+
+    def createBAMReadcountCommand(self):
+        import runnerSupport
+        flagValues = {"-w" : self.maxWarnings,
+                      "-f" : self.refGenomeFasta,
+                      "-l" : self.inputPositions}
+        args = [programPaths["bam-readcount"], flagValues, self.bamIn, ">" , self.readcountOut]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        bamReadcountCommand = argumentFormatter.argumentString
+        return bamReadcountCommand

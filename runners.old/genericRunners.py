@@ -6,6 +6,56 @@ genericRunnerPaths = {"python3" : "/u/local/apps/python/3.4.3/bin/python3",  #ho
                       "qsub" : "/u/systems/UGE8.0.1vm/bin/lx-amd64/qsub",
                       "arrayWrapper" : "./arrayWrapper.py"}
 
+class ArgumentFormatter(object):
+    
+    def __init__(self, arguments, keyValues = False, delimiter = ","):
+        self.arguments = arguments
+        self.delimiter = delimiter
+        self.argumentList = self.formatArguments(tuple(self.arguments), keyValues, self.delimiter)
+        self.argumentString = self.formatArgumentString(self.argumentList)
+    
+    def formatArguments(self, arguments, keyValues = False, delimiter = ","):  #doing the tuple and untuple thing to lower chance of having the original changed
+        if keyValues:
+            if type(keyValues) == bool:
+                raise RuntimeError("If using key value outputs, a joining character (such as an equal sign or colon) must be passed.")
+        arguments = list(arguments)
+        argumentBlockList = []
+        for argument in arguments:
+            if type(argument) == str:
+                argumentBlockList += [argument]
+            elif type(argument) == list:
+                argumentStringList = [str(item) for item in argument]
+                argumentBlockList += delimiter.join(argumentStringList)
+            elif type(argument) == dict:
+                dictList = []
+                keys = list(argument.keys())
+                for key in keys:
+                    dictList += [key]
+                    if type(argument[key]) == str:
+                        addString = argument[key]
+                    elif type(argument[key]) == list:
+                        argument[key] = [str(item) for item in argument[key]]
+                        addString = delimiter.join(argument[key])
+                    elif type(argument[key]) in [float, int]:
+                        addString = str(argument[key])
+                    elif type(argument[key]) == bool:
+                        addString = ""
+                        if not argument[key]:
+                            del dictList[-1]  #if it was false on a boolean argument, remove the flag we put in at the start of this method.
+                    if keyValues:
+                        dictList[-1] += keyValues + addString
+                    else:
+                        if addString:
+                            dictList.append(addString)
+                argumentBlockList += dictList
+        return argumentBlockList                
+            
+    def formatArgumentString(self, arguments):
+        return " ".join(arguments)
+    
+    def __str__(self):
+        return self.argumentString    
+
 class HoffmanJob(object):
     
     def __init__(self, jobNumber, dependencies, jobName, tempDir, emailAddress, emailConditions, cores = 1, memory = 6, maxRetries = 10, mock = False):
@@ -108,7 +158,25 @@ class HoffmanJob(object):
                     print("Submission to qsub failed. Retrying.\nQSUB OUT: %s\n QSUB ERR: %s" %(qsubOut, qsubError))
                     retries += 1
         
-
+def createTempDir(subjectID):
+    import re
+    import os
+    import datetime
+    successful = False
+    while not successful:
+        currenttime = datetime.datetime.now()
+        currenttime = str(currenttime)
+        currenttime = re.sub(r'\W','',currenttime)
+        tempDir = os.getcwd() + os.sep + "." + subjectID + currenttime
+        if os.path.isdir(tempDir):
+            continue
+        try:
+            os.mkdir(tempDir)
+        except OSError:
+            continue
+        successful = True
+    os.mkdir(tempDir + "/outputs")
+    return tempDir
         
     
         

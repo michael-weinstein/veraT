@@ -7,6 +7,3 @@ if not os.getcwd() + os.sep + "runners" in sys.path:
 import programRunners
 import genericRunners
 import houseKeeping
-import gatkRunners
-import picardRunners
-import runnerSupport

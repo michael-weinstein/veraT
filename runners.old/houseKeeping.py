@@ -18,13 +18,6 @@ class Move(object):
 class Gzip(object):
     def __init__(self, file):
         self.gzipCommand = "gzip " + file
-        
-class Capstone(object):
-    def __init__(self, sampleName, outputDir = ""):
-        if not outputDir:
-            import os
-            outputDir = os.getcwd() + os.sep
-        capstoneCommand = "echo \"SAMPLE " + sampleName + " DONE\" > " + outputDir + sampleName + ".capstone ; sleep 180"
 
 
         
