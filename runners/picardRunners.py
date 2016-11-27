@@ -219,7 +219,7 @@ class Deduplicate(object):
     
 class BuildBAMIndex(object):
     
-    def __init__(self, bamFile, validation_stringency = "LENIENT", create_index = True, clobber = False, outputDirectory = ""):
+    def __init__(self, bamFile, validation_stringency = "LENIENT", create_index = True):
         import runnerSupport
         self.bamFile = bamFile
         #SANITY TEST ALL THE THINGS

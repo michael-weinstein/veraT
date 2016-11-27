@@ -88,12 +88,14 @@ def checkForRequiredFile(fileName, fileDescription, instructions = ""):
                 instructions = " " + instructions
         raise FileNotFoundError("Unable to find %s.%s Expected file: %s" %(fileDescription, instructions, fileName))
     
-def checkTypes(values, requiredType):
+def checkTypes(values, requiredTypes):
     if not type(values) == list:
         values = [values]
         typesList = [type(value) for value in values]
+    if not type(requiredType) == list:
+        requiredTypes = [requiredTypes]
     for value in values:
-        assert type(value) == requiredType, "Incorrect value type found while type checking. Required: %s\nFound:\n%s\%s" %(requiredType, values, typesList)
+        assert type(value) in requiredTypes, "Incorrect value type found while type checking. Required: %s\nFound:\n%s\%s" %(requiredTypes, values, typesList)
 
 class ArgumentFormatter(object):
     
@@ -162,12 +164,38 @@ class ArgumentFormatter(object):
     
 class WorkflowReturn(object):
     
-    def __init__(self, data, job, clobber, intermediateData = {}, intermediateJobs = {}):
+    def __init__(self, data, jobID, clobber, intermediateData = {}, intermediateJobs = {}):
         self.data = data
-        self.job = job
+        self.jobID = jobID
         self.clobber = clobber
         self.intermediateData = intermediateData
         self.intermediateJobs = intermediateJobs
+        checkTypes(self.data, [str, list])
+        checkTypes(self.clobber, bool)
+        checkTypes(self.job, [int, list])
+        
+    def addJob(self, data, jobID, clobber):
+        checkTypes(data, str)
+        checkTypes(jobID, int)
+        checkTypes(clobber, bool)
+        if type(self.jobID) == int:
+            self.jobID = [self.jobID]
+        if type(self.data) == str:
+            self.data = [self.data]
+        self.data.append(data)
+        self.jobID.append(jobID)
+        
+class EmptyWorkflowReturn(WorkflowReturn):
+    
+    def __init__(self):
+        self.data = ""
+        self.jobID = []
+        self.clobber = None
+        self.intermediateData = {}
+        self.intermediateJobs = {}
+        checkTypes(self.data, [str, list])
+        checkTypes(self.clobber, bool)
+        checkTypes(self.job, [int, list])
         
 class JobList(object):
     

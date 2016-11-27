@@ -10,3 +10,4 @@ import houseKeeping
 import gatkRunners
 import picardRunners
 import runnerSupport
+import fastqDirectoryParser
