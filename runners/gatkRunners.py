@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 
 import os
+global programPaths
+programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
+                "java" : os.getcwd() + "/bin/jre1.8.0_77/bin/java",
+                "samtools" : "/u/local/apps/samtools/1.2/gcc-4.4.7/bin/samtools",
+                "extractVariants" : os.getcwd() + "/analysisScripts/extractVariants.py",
+                "combineVariants" : os.getcwd() + "/analysisScripts/combineExtractedVariants.py",
+                "python3" : "/u/local/apps/python/3.4.3/bin/python3",                
+                "bgzip" : os.getcwd() + "/bin/tabix/tabix-0.2.6/bgzip",
+                "tabix" : os.getcwd() + "/bin/tabix/tabix-0.2.6/tabix",
+                "varscan" : os.getcwd() + "/bin/VarScan.v2.4.0.jar",
+                "bam-readcount" : os.getcwd() + "bin/bam-readcount/bin/bam-readcount"}
 global gatkPath
 gatkPath = os.getcwd() + "/bin/GenomeAnalysisTK.jar"
 
@@ -8,6 +19,7 @@ class IndelRealignment(object):
     
     def __init__(self, sampleName, bamIn, refGenomeFasta, known = False, bedFile = False, allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
         import runnerSupport
+        self.clobber = clobber
         self.sampleName = sampleName
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
         self.refGenomeFasta = refGenomeFasta
@@ -80,6 +92,8 @@ class BQSR(object):
     
     def __init__(self, sampleName, bamIn, refGenomeFasta, known, bedFile = False, allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
         import runnerSupport
+        self.clobber = clobber
+        self.bedFile = bedFile
         self.sampleName = sampleName
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
         self.refGenomeFasta = refGenomeFasta
@@ -121,6 +135,7 @@ class BQSR(object):
         
     def checkRefGenome(self):
         import os
+        import runnerSupport
         runnerSupport.checkForRequiredFile(self.refGenomeFasta, "reference genome file")
         runnerSupport.checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index", "Please move the index to this location or use samtools faidx to create one.")
         runnerSupport.checkForRequiredFile(".".join(self.refGenomeFasta.split(".")[:-1]) + ".dict", "reference genome dictionary", "Please move the index to this location or use picard create sequence dictionary to create one.")
@@ -175,6 +190,7 @@ class HaplotypeCaller(object):
     
     def __init__(self, sampleName, bamIn, refGenomeFasta, bedFile = False, emitRefConfidence = "GVCF", variantIndexType = "Linear", variantIndexParameter = 128000, dbSNP = False, annotation = ["Coverage", "AlleleBalance"], intervalPadding = 100, pairHiddenMarkovModel = "VECTOR_LOGLESS_CACHING", allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
         import runnerSupport
+        self.clobber = clobber
         self.bedFile = bedFile
         self.sampleName = sampleName
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
@@ -201,7 +217,7 @@ class HaplotypeCaller(object):
         #SANITY TEST ALL THE THINGS
         runnerSupport.checkForRequiredFile(self.bamIn, "BAM file for realignment")
         if self.dbSNP:
-            runnerSupport.checkForRequiredFile(dbSNP, "dbSNP file")
+            runnerSupport.checkForRequiredFile(self.dbSNP, "dbSNP file")
         if self.bedFile:
             runnerSupport.checkForRequiredFile(self.bedFile, "BED file containing target intervals")
         if not type(self.emitRefConfidence) == int and not self.emitRefConfidence == "GVCF":
@@ -250,6 +266,7 @@ class DepthOfCoverage(object):
     
     def __init__(self, sampleName, bamIn, refGenomeFasta, bedFile = False, allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
         import runnerSupport
+        self.clobber = clobber
         self.bedFile = bedFile
         self.sampleName = sampleName
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
@@ -274,6 +291,7 @@ class DepthOfCoverage(object):
         self.depthOfCoverageCommand = self.createGATKCommand()
         
     def makeAndCheckOutputFileNames(self):
+        import runnerSupport
         self.depthOut = self.outputDirectory + self.sampleName + ".depthCov"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.depthOut, self.sampleName, self.clobber)
         
@@ -301,6 +319,7 @@ class Mutect1(object):
     
     def __init__(self, sampleName, normalBamIn, tumorBamIn, refGenomeFasta, bedFile = False, dbSNP = False, allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
         import runnerSupport
+        self.clobber = clobber
         self.sampleName = sampleName
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
         self.refGenomeFasta = refGenomeFasta
@@ -361,6 +380,7 @@ class JointGenotype(object):
     
     def __init__(self, sampleName, gvcfIn, comparisonGVCFDir, refGenomeFasta, dbSNP = False,  allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
         import runnerSupport
+        self.clobber = clobber
         self.sampleName = sampleName
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
         self.refGenomeFasta = refGenomeFasta
@@ -451,11 +471,11 @@ class VQSRResource(object):
             return "false"
         
     def formArgument(self):
-        known = "=".join("known", self.boolPrint(self.known))
-        training = "=".join("training", self.boolPrint(self.training))
-        truth = "=".join("truth", self.boolPrint(self.truth))
-        prior = "=".join("prior", str(self.prior))
-        descriptors = ",".join(self.resourceName, known, training, truth)
+        known = "=".join(["known", self.boolPrint(self.known)])
+        training = "=".join(["training", self.boolPrint(self.training)])
+        truth = "=".join(["truth", self.boolPrint(self.truth)])
+        prior = "=".join(["prior", str(self.prior)])
+        descriptors = ",".join([self.resourceName, known, training, truth])
         return descriptors + " " + self.fileName
     
     def __str__(self):
@@ -465,6 +485,7 @@ class VQSR(object):
     
     def __init__(self, sampleName, vcfIn, resourceList, refGenomeFasta, maxGaussians = "default", annotationsList = False, mode = False, truthSensitivityFilter = False, allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
         import runnerSupport
+        self.clobber = clobber
         snpAnnotationStandard = ["QD", "MQ", "MQRankSum", "ReadPosRankSum", "FS", "SOR"]
         indelAnnotationStandard = ["QD", "MQRankSum", "ReadPosRankSum", "FS", "SOR"]
         snpDefaultMaxGaussians = False
@@ -515,10 +536,11 @@ class VQSR(object):
                 self.outputDirectory = outputDirectory
         #SANITY TEST ALL THE THINGS
         runnerSupport.checkForRequiredFile(self.vcfIn, "VCF for analysis")
-        runnerSupport.checkTypes(annotationsList, list)
-        runnerSupport.checkTypes(truthSensitivityFilter, float)
-        for resource in self.resourceList:
-            runnerSupport.checkTypes(resource, VQSRResource)
+        runnerSupport.checkTypes([self.annotationsList], list)
+        runnerSupport.checkTypes(self.truthSensitivityFilter, float)
+        # from gatkRunners import VQSRResource
+        # for resource in self.resourceList:
+        #     runnerSupport.checkTypes(resource, type(VQSRResource))
         self.checkRefGenome()
         #DONE SANITY CHECKING. FOR NOW.
         self.makeAndCheckOutputFileNames()
@@ -529,9 +551,9 @@ class VQSR(object):
         #checking only the vcf output and not any of the secondary outputs.  If we are creating a new VCF, we need to create new secondary outputs to go with it and SHOULD overwrite to avoid confusion.
         newExtension = "." + self.mode.lower() + "Recal.vcf"
         self.vcfOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.vcfIn) + newExtension
-        self.recalFile = ".".join(self.sampleName, self.mode, "recal")
-        self.tranchesFile = ".".join(self.sampleName, self.mode, "tranches")
-        self.rScriptFile = ".".join(self.sampleName, self.mode, "plots.R")
+        self.recalFile = ".".join([self.sampleName, self.mode, "recal"])
+        self.tranchesFile = ".".join([self.sampleName, self.mode, "tranches"])
+        self.rScriptFile = ".".join([self.sampleName, self.mode, "plots.R"])
         self.clobber = runnerSupport.checkForOverwriteRisk(self.vcfOut, self.sampleName, self.clobber)
         
     def checkRefGenome(self):

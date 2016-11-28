@@ -3,8 +3,8 @@
 import runners.fastqDirectoryParser
 
 dirParse = runners.fastqDirectoryParser.FastqDirectory("sampleData")
-sampleMatrix = dirParse.getAllFilesForSample("JMS")
-sampleTree = dirParse.getAllFilesForSample("JMS", returnTree = True)
+sampleTree = dirParse.getAllFilesForSample("JMS")
+sampleMatrix = dirParse.getAllFilesForSample("JMS", returnMatrix = True)
 hashSearch = dirParse.find({2:"022213"})
 listSearch = dirParse.find(["JMS","normal"])
 intSearch = dirParse.find(3)

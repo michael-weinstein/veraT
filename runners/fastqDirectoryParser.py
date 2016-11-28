@@ -99,7 +99,7 @@ class FastqDirectory(object):
                 results.append(file)
         return results
     
-    def getAllFilesForSample(self, criteria, returnTree = False):
+    def getAllFilesForSample(self, criteria, returnMatrix = False):
         #organizing by sampleName, then lane, then pairedEnd
         searchResults = self.find(criteria)
         self.collisionCheck(searchResults)
@@ -108,8 +108,8 @@ class FastqDirectory(object):
             if not file.sampleName in sampleTree:
                 sampleTree[file.sampleName] = {}
             if not file.lane in sampleTree[file.sampleName]:
-                sampleTree[file.sampleName][file.lane] = []
-            sampleTree[file.sampleName][file.lane].append(file)
+                sampleTree[file.sampleName][file.lane] = {}
+            sampleTree[file.sampleName][file.lane][file.pairedEnd] = file
             if len(sampleTree[file.sampleName][file.lane]) > 2:
                 raise FastqDirectoryError("Found more than two paired end files going into %s lane %s\n%s" %(file.sampleName, file.lane, sampleTree))
         fileMatrix = []
@@ -119,7 +119,7 @@ class FastqDirectory(object):
             for laneKey in list(sampleTree[sampleKey].keys()):
                 fileMatrix[sampleIndex].append(sampleTree[sampleKey][laneKey])
             sampleIndex += 1
-        if returnTree:
+        if not returnMatrix:
             return sampleTree
         else:
             return fileMatrix
@@ -138,12 +138,15 @@ class FastqDirectory(object):
 class FastqFile(object):
     
     def __init__(self, file):
-        import os
-        if not os.path.isabs(file):
-            file = os.path.abspath(file)
-        self.filePath = file
-        self.splitFileAndDirectory(file)
-        self.infoTuple = (self.sampleName, self.lane, self.pairedEnd)
+        if file == False:
+            self.filePath = False
+        else:
+            import os
+            if not os.path.isabs(file):
+                file = os.path.abspath(file)
+            self.filePath = file
+            self.splitFileAndDirectory(file)
+            self.infoTuple = (self.sampleName, self.lane, self.pairedEnd)
         
     def __str__(self):
         return self.filePath

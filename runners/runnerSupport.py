@@ -91,8 +91,8 @@ def checkForRequiredFile(fileName, fileDescription, instructions = ""):
 def checkTypes(values, requiredTypes):
     if not type(values) == list:
         values = [values]
-        typesList = [type(value) for value in values]
-    if not type(requiredType) == list:
+    typesList = [type(value) for value in values]
+    if not type(requiredTypes) == list:
         requiredTypes = [requiredTypes]
     for value in values:
         assert type(value) in requiredTypes, "Incorrect value type found while type checking. Required: %s\nFound:\n%s\%s" %(requiredTypes, values, typesList)
@@ -116,7 +116,7 @@ class ArgumentFormatter(object):
                 argumentBlockList += [argument]
             elif type(argument) == list:
                 argumentStringList = [str(item) for item in argument]
-                argumentBlockList += delimiter.join(argumentStringList)
+                argumentBlockList.append(delimiter.join(argumentStringList))
             elif type(argument) == dict:
                 dictList = []
                 keys = list(argument.keys())
@@ -171,19 +171,46 @@ class WorkflowReturn(object):
         self.intermediateData = intermediateData
         self.intermediateJobs = intermediateJobs
         checkTypes(self.data, [str, list])
-        checkTypes(self.clobber, bool)
-        checkTypes(self.job, [int, list])
+        checkTypes(self.clobber, [bool, type(None)])
+        checkTypes(self.jobID, [int, list])
         
-    def addJob(self, data, jobID, clobber):
-        checkTypes(data, str)
-        checkTypes(jobID, int)
-        checkTypes(clobber, bool)
+    def addJob(self, workflowReturnIn):
+        checkTypes(workflowReturnIn.data, [str, list])
+        checkTypes(workflowReturnIn.jobID, [list, int])
+        checkTypes(workflowReturnIn.clobber, [bool, type(None)])
         if type(self.jobID) == int:
             self.jobID = [self.jobID]
         if type(self.data) == str:
             self.data = [self.data]
-        self.data.append(data)
-        self.jobID.append(jobID)
+        if type(workflowReturnIn.data) == str:
+            workflowReturnIn.data = [workflowReturnIn.data]
+        self.data += (workflowReturnIn.data)
+        if type(workflowReturnIn.jobID) == int:
+            workflowReturnIn.jobID = [workflowReturnIn.jobID]
+        self.jobID += (workflowReturnIn.jobID)
+        if self.clobber == None:  #if no clobber value has been firmly set, override it with whatever comes in, even if it's staying as none
+            self.clobber = workflowReturnIn.clobber
+        elif not self.clobber and workflowReturnIn.clobber: #if self.clobber is false and the incoming value is true, override it with the new value (this probably won't happen)
+            self.clobber = clobber
+            
+    def add(self, data, jobID, clobber):
+        checkTypes(data, [str, list])
+        checkTypes(jobID, [int, list])
+        checkTypes(clobber, [bool, type(None)])
+        if type(self.jobID) == int:
+            self.jobID = [self.jobID]
+        if type(jobID) == int:
+            jobID = [jobID]
+        if type(self.data) == str:
+            self.data = [self.data]
+        if type(data) == str:
+            data = [data]
+        self.data += (data)
+        self.jobID += (jobID)
+        if self.clobber == None:  #if no clobber value has been firmly set, override it with whatever comes in, even if it's staying as none
+            self.clobber = clobber
+        elif not self.clobber and clobber: #if self.clobber is false and the incoming value is true, override it with the new value (this probably won't happen)
+            self.clobber = clobber
         
 class EmptyWorkflowReturn(WorkflowReturn):
     
@@ -194,8 +221,8 @@ class EmptyWorkflowReturn(WorkflowReturn):
         self.intermediateData = {}
         self.intermediateJobs = {}
         checkTypes(self.data, [str, list])
-        checkTypes(self.clobber, bool)
-        checkTypes(self.job, [int, list])
+        checkTypes(self.clobber, [bool, type(None)])
+        checkTypes(self.jobID, [int, list])
         
 class JobList(object):
     
@@ -206,7 +233,7 @@ class JobList(object):
         if not self.tempDir.endswith(os.sep):
             self.tempDir = self.tempDir + os.sep
         self.fileName = self.tempDir + "jobs.pkl"
-        self.file = open(self.fileName, 'r+b') #need to read and write as a binary
+        self.file = open(self.fileName, 'w+b') #need to read and write as a binary
         placeHolder = ["Zeroth job placeholder"] #need a placeholder for the zeroth position because the scheduler is indexed to job 1 and can't handle a job zero
         pickle.dump(placeHolder, self.file)
         self.file.seek(0)  #return to the start of the file for when we need to rewrite it

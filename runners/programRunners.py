@@ -175,12 +175,7 @@ class BWAmem(object):
         self.checkRefGenome()
         self.makeAndCheckOutputFileNames()
         #DONE SANITY CHECKING ALL THE THINGS. FOR NOW.
-        self.pe1Command = self.makeBWAlignCommand(self.pe1, self.pe1Out)
-        if not self.pairedEnd:
-            self.pe2Command = ""
-        else:
-            self.pe2Command = self.makeBWAlignCommand(self.pe2, self.pe2Out)
-        self.bwaCommand = self.makeBWACommand()
+        self.bwaCommand = self.makeBWAlignCommand()
     
     def checkRefGenome(self):
         import runnerSupport
@@ -197,7 +192,7 @@ class BWAmem(object):
         self.samOut = self.outputDirectory + self.sampleName + ".sam"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.samOut, self.sampleName, self.clobber)
                 
-    def makeBWACommand(self):
+    def makeBWAlignCommand(self):
         import runnerSupport
         flagValues = {}
         if self.pairedEnd:
@@ -577,7 +572,7 @@ class Varscan(object):
                              "--tumor-purity" : self.tumorPurity,
                              "--min-freq-for-hom" : self.homozygousFrequency}
         flagValuesProcess = {"--min-tumor-freq" : self.minimumTumorVariantFrequency}
-        somaticArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "somatic", self.normalPileup, self.tumorPileup, self.sampleName + ".varscan" + flagValuesSomatic]
+        somaticArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "somatic", self.normalPileup, self.tumorPileup, self.sampleName + ".varscan" , flagValuesSomatic]
         snpArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "processSomatic", self.snpOut, flagValuesProcess]
         indelArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "processSomatic", self.indelOut, flagValuesProcess]
         argumentFormatter = runnerSupport.ArgumentFormatter(somaticArgs)

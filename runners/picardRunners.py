@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 
 import os
+global programPaths
+programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
+                "java" : os.getcwd() + "/bin/jre1.8.0_77/bin/java",
+                "samtools" : "/u/local/apps/samtools/1.2/gcc-4.4.7/bin/samtools",
+                "extractVariants" : os.getcwd() + "/analysisScripts/extractVariants.py",
+                "combineVariants" : os.getcwd() + "/analysisScripts/combineExtractedVariants.py",
+                "python3" : "/u/local/apps/python/3.4.3/bin/python3",                
+                "bgzip" : os.getcwd() + "/bin/tabix/tabix-0.2.6/bgzip",
+                "tabix" : os.getcwd() + "/bin/tabix/tabix-0.2.6/tabix",
+                "varscan" : os.getcwd() + "/bin/VarScan.v2.4.0.jar",
+                "bam-readcount" : os.getcwd() + "bin/bam-readcount/bin/bam-readcount"}
 global picardPath
 picardPath = os.getcwd() + "/bin/picard-tools-2.1.1/picard.jar"
 
@@ -86,7 +97,7 @@ class MergeSAMFiles(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.bamOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.bamFiles[0]) + ".merged.bam"
+        self.bamOut = self.outputDirectory + self.sampleName + ".merged.bam"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.bamOut, self.sampleName, self.clobber)
         
     def createPicardCommand(self):
@@ -103,7 +114,7 @@ class MergeSAMFiles(object):
     
 class AddReadGroups(object):
     
-    def __init__(self, sampleName, bamIn, sort_order = "coordinate", rgid = "1", rglb = "defaultLibrary", rgpl = "Illumina", rgpu = "defaultBarcode", validation_stringency = "LENIENT", create_index = True, clobber = False, outputDirectory = ""):
+    def __init__(self, sampleName, bamIn, sort_order = "coordinate", rgid = "1", rglb = "defaultLibrary", rgpl = "Illumina", rgpu = "defaultBarcode", rgsm = False, validation_stringency = "LENIENT", create_index = True, clobber = False, outputDirectory = ""):
         import runnerSupport
         self.sampleName = sampleName
         if not outputDirectory:
@@ -139,11 +150,12 @@ class AddReadGroups(object):
             raise RuntimeError("RGLB value must be given.")
         self.rgpl = str(rgpl)
         if not rgpu:
-            raise RuntimeError("RGLB value must be given.")
+            raise RuntimeError("RGPU value must be given.")
         self.rgpu = str(rgpu)
         if not rgsm:
-            raise RuntimeError("RGLB value must be given.")
-        self.rgsm = str(self.sampleName)
+            self.rgsm = str(self.sampleName)
+        else:
+            self.rgsm = str(rgsm)
         self.makeAndCheckOutputFileNames()
         self.addReadGroupsCommand = self.createPicardCommand()
         
@@ -222,6 +234,7 @@ class BuildBAMIndex(object):
     def __init__(self, bamFile, validation_stringency = "LENIENT", create_index = True):
         import runnerSupport
         self.bamFile = bamFile
+        self.validation_stringency = validation_stringency
         #SANITY TEST ALL THE THINGS
         runnerSupport.checkForRequiredFile(self.bamFile, "BAM file to index")
         #DONE SANITY CHECKING. FOR NOW.
