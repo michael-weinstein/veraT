@@ -557,8 +557,9 @@ class Varscan(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.snpOut = self.outputDirectory + self.sampleName + "varscan.snp"
-        self.indelOut = self.outputDirectory + self.sampleName + "varscan.indel"
+        self.baseName = self.outputDirectory + self.sampleName + ".varscan"
+        self.snpOut = self.outputDirectory + self.sampleName + ".varscan.snp"
+        self.indelOut = self.outputDirectory + self.sampleName + ".varscan.indel"
         self.HcSNPOut = self.snpOut + "Somatic.hc.positions"
         self.HcIndelOut = self.indelOut + "Somatic.hc.positions"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.snpOut, self.sampleName, self.clobber)
@@ -572,7 +573,7 @@ class Varscan(object):
                              "--tumor-purity" : self.tumorPurity,
                              "--min-freq-for-hom" : self.homozygousFrequency}
         flagValuesProcess = {"--min-tumor-freq" : self.minimumTumorVariantFrequency}
-        somaticArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "somatic", self.normalPileup, self.tumorPileup, self.sampleName + ".varscan" , flagValuesSomatic]
+        somaticArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "somatic", self.normalPileup, self.tumorPileup, self.baseName , flagValuesSomatic]
         snpArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "processSomatic", self.snpOut, flagValuesProcess]
         indelArgs = [programPaths["java"], "-Xmx1g", "-jar", programPaths["varscan"], "processSomatic", self.indelOut, flagValuesProcess]
         argumentFormatter = runnerSupport.ArgumentFormatter(somaticArgs)

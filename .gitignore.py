@@ -1,0 +1,2 @@
+runnersOld*/**
+*.pyc

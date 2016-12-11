@@ -107,7 +107,7 @@ class MergeSAMFiles(object):
                       "VALIDATION_STRINGENCY" : self.validation_stringency,
                       "CREATE_INDEX" : self.create_index,
                       "SORT_ORDER" : self.sort_order}
-        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", picardPath, "SortSam", flagValues]
+        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", picardPath, "MergeSamFiles", flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(picardArgs, "=")
         picardCommand = argumentFormatter.argumentString
         return picardCommand
@@ -156,6 +156,10 @@ class AddReadGroups(object):
             self.rgsm = str(self.sampleName)
         else:
             self.rgsm = str(rgsm)
+        if self.create_index:
+            self.create_index = "true"
+        else:
+            self.create_index = "false"
         self.makeAndCheckOutputFileNames()
         self.addReadGroupsCommand = self.createPicardCommand()
         
@@ -174,8 +178,9 @@ class AddReadGroups(object):
                       "RGID" : self.rgid,
                       "RGPL" : self.rgpl,
                       "RGPU" : self.rgpu,
-                      "RGSM" : self.rgsm}
-        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", picardPath, "SortSam", flagValues]
+                      "RGSM" : self.rgsm,
+                      "RGLB" : self.rglb}
+        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", picardPath, "AddOrReplaceReadGroups", flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(picardArgs, "=")
         picardCommand = argumentFormatter.argumentString
         return picardCommand
@@ -203,10 +208,10 @@ class Deduplicate(object):
         if not type(self.create_index) == bool:
             raise RuntimeError("Create index value should be passed as a boolean. Passed value: %s" %(self.create_index))
         #DONE SANITY CHECKING. FOR NOW.
-        # if self.create_index:
-        #     self.create_index = "true"
-        # else:
-        #     self.create_index = "false"
+        if self.create_index:
+            self.create_index = "true"
+        else:
+            self.create_index = "false"
         self.makeAndCheckOutputFileNames()
         self.deduplicateCommand = self.createPicardCommand()
         
@@ -214,7 +219,7 @@ class Deduplicate(object):
         import runnerSupport
         self.bamOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.bamIn) + ".deduped.bam"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.bamOut, self.sampleName, self.clobber)
-        self.metricsOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.bamIn) + "dedupe.metrics"
+        self.metricsOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.bamIn) + ".dedupe.metrics"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.metricsOut, self.sampleName, self.clobber)
         
     def createPicardCommand(self):

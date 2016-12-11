@@ -14,6 +14,8 @@ class HoffmanJob(object):
         if type(self.dependencies) in (int, str):
             self.dependencies = [self.dependencies]
         self.jobName = jobName
+        if self.jobName[0].isdigit():
+            self.jobName = "j" + self.jobName
         self. jobNumber = jobNumber
         self.emailAddress = emailAddress
         self.emailConditions = emailConditions
@@ -92,6 +94,9 @@ class HoffmanJob(object):
         successfullySubmitted = False
         retries = 0
         while not successfullySubmitted:
+            print()
+            print("JOB: %s" %(commandToExecuteString))
+            print("SUB: %s" %(" ".join(schedulerCommandList)))
             child = subprocess.Popen(schedulerCommandList, stdout = subprocess.PIPE, stdin = subprocess.PIPE, stderr = subprocess.PIPE)
             childOut, childErr = child.communicate(input = commandToExecuteString.encode())
             childExitStatus = child.returncode

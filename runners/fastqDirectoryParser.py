@@ -184,7 +184,10 @@ class FastqFile(object):
     
     def analyzeFileTags(self, fileTags):
         rawSampleNumber, rawLaneNumber, rawPairedEnd, rawFileNumber = fileTags.split("_")
-        self.sampleNumber = int(rawSampleNumber.replace("S",""))
+        try:
+            self.sampleNumber = int(rawSampleNumber.replace("S",""))
+        except ValueError:
+            pass
         self.lane = int(rawLaneNumber.replace("L",""))
         self.pairedEnd = int(rawPairedEnd.replace("R",""))
         self.fileNumber = int(rawFileNumber)
@@ -200,7 +203,9 @@ class FastqFile(object):
                 else:
                     self.splitSampleName = [sampleName] #nothing to split on here
             elif len(nonWordNonUnderscore) > 1:
-                raise FastqDirectoryError("Sample name in %s has multiple non-word dividing characters. Unable to analyze sample name." %(self.fileName))
+                print("WARNING: Sample name in %s has multiple non-word dividing characters. Unable to analyze sample name." %(self.fileName))
+                self.splitSampleName = re.split("\W", sampleName)
+                return True
             else: #only other possibility would be 1
                 delimiter = nonWordNonUnderscore[0]
         else:

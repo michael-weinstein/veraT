@@ -252,16 +252,18 @@ class JobList(object):
     def close(self):
         self.file.close()
         
-def createTempDir(subjectID):
+def createTempDir(subjectID, useDir = False):
     import re
     import os
     import datetime
     successful = False
+    if not useDir:
+        useDir = os.getcwd()
     while not successful:
         currenttime = datetime.datetime.now()
         currenttime = str(currenttime)
         currenttime = re.sub(r'\W','',currenttime)
-        tempDir = os.getcwd() + os.sep + "." + subjectID + currenttime
+        tempDir = useDir + os.sep + "." + subjectID + currenttime
         if os.path.isdir(tempDir):
             continue
         try:
@@ -271,4 +273,21 @@ def createTempDir(subjectID):
         successful = True
     os.mkdir(tempDir + "/outputs")
     return tempDir
+    
+def calculateCoresFromFileSize(files, gigsPerCore, maxCores = 8):
+    import os
+    if type(files) == str:
+        files = [files]
+    totalSize = 0
+    for file in files:
+        if file:
+            totalSize += os.path.getsize(file)
+            #print(file + " : " + str(os.path.getsize(file)))
+    cores = int(-(-totalSize // (gigsPerCore * 1000000000)))
+    cores = min([cores, maxCores])
+    #print("Cores: %s" %(cores))
+    if cores < 1:
+        return 1
+    else:
+        return cores
     

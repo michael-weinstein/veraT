@@ -43,6 +43,8 @@ def main():
     import pickle
     import random
     import time
+    import os
+    os.environ["PATH"] += ":/u/local/apps/R/current/bin"  #adding R to the path for the subshell because some GATK functions need this
     global args  #declare args as a global
     args = CheckArgs()  #get an object containing validated arguments
     try:

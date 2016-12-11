@@ -3,12 +3,33 @@
 global genericRunnerPaths
 houseKeepingRunnerPaths = {}
 
-class Delete(object):
+class CheckArgs(object):
+    
+    def __init__(self):
+        import argparse
+        import os
+        parser = argparse.ArgumentParser()
+        parser.add_argument("-m", "--mode", help = "Mode to run in")
+        parser.add_argument("-f", "--files", help = "Files to act upon")
+        rawArgs = parser.parse_args()
+        mode = rawArgs.mode
+        if not mode:
+            raise RuntimeError("No mode specified, no job to do.")
+        else:
+            self.mode = mode.upper()
+        files = rawArgs.files
+        if "," in files:
+            files = files.split(",")
+        else:
+            files = [files]
+        self.files = files
+
+class Delete(object):  #slightly fancier than a simple rm command, will try to remove associated bai files when removing a bam file
     
     def __init__(self, file):
         if type(file) == list or type(file) == tuple:
-            file = " ".join(file)
-        self.deleteCommand = "rm -f " + file
+            file = ",".join(file)
+        self.deleteCommand = "/u/local/apps/python/3.4.3/bin/python3 runners/houseKeeping.py -m delete -f " + file
         
 class Move(object):
     
@@ -21,14 +42,34 @@ class Gzip(object):
         
 class Capstone(object):
     def __init__(self, sampleName, outputDir = ""):
+        import os
         if not outputDir:
-            import os
             outputDir = os.getcwd() + os.sep
-        capstoneCommand = "echo \"SAMPLE " + sampleName + " DONE\" > " + outputDir + sampleName + ".capstone ; sleep 180"
+        self.capstoneCommand = "echo \"SAMPLE " + sampleName + " DONE\" > " + outputDir + os.sep + sampleName + ".capstone ; sleep 180"
 
-
-        
+def fileDeleter(files):
+    if type(files) == str:
+        if "," in files:
+            files = files.split(",")
+        else:
+            files = [files]
+    import os
+    for file in files:
+        if os.path.isfile(file):
+            os.remove(file)
+        if file.endswith(".bam"):
+            if os.path.isfile(file + ".bai"):
+                os.remove(file + ".bai")
+            elif os.path.isfile(file[:-3] + "bai"):
+                os.remove(file[:-3] + "bai")
     
+if __name__ == '__main__':
+    args = CheckArgs()
+    if args.mode == "DELETE":
+        fileDeleter(args.files)
+    else:
+        raise RuntimeError("Invalid mode set: %s" %(args.mode))
+    quit()
         
     
     

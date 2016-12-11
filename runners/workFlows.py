@@ -4,7 +4,7 @@ import os
 
 class PipelineStart(object):
     
-    def __init__(self, sampleName, tempDir = False):
+    def __init__(self, sampleName, useDir = False, tempDir = False):
         if tempDir:
             import os
             if not os.path.isdir(tempDir):
@@ -12,6 +12,12 @@ class PipelineStart(object):
             else:
                 if os.path.isfile(tempDir + os.sep + "jobs.pkl"):
                     raise RuntimeError("A jobs.pkl already exists in the specified temporary directory.  Please clear the directory before overwriting with the new jobs.")
+        elif useDir:
+            import runnerSupport
+            import os
+            if not os.path.isdir(useDir):
+                os.mkdir(useDir)
+            tempDir = runnerSupport.createTempDir(sampleName, useDir)
         else:
             import runnerSupport
             tempDir = runnerSupport.createTempDir(sampleName)
@@ -26,7 +32,7 @@ class PipelineStart(object):
         
 class AlignMemAddReadGroups(object):
     
-    def __init__(self, jobList, sampleName, refGenomeFasta, pe1, pe2 = False, bwaCores = 2, readGroupLibrary = "defaultLibrary", readGroupID = 1, readGroupSampleName = False, readGroupPlatform = "Illumina", barcode = "defaultBarcode", emailAddress = False, clobber = None, outputDir = "", lastJob = False, mock = False):
+    def __init__(self, jobList, sampleName, refGenomeFasta, pe1, pe2 = False, bwaCores = "calculateFromSize", readGroupLibrary = "defaultLibrary", readGroupID = 1, readGroupSampleName = False, readGroupPlatform = "Illumina", barcode = "defaultBarcode", emailAddress = False, clobber = None, outputDir = "", lastJob = False, mock = False):
         import programRunners
         import houseKeeping
         import picardRunners
@@ -39,8 +45,15 @@ class AlignMemAddReadGroups(object):
         self.library = str(readGroupLibrary)
         if self.library == "defaultLibrary":
             self.library = ""
-        self.bwaCores = bwaCores
-        align = programRunners.BWAmem(sampleName, refGenomeFasta, pe1, pe2, cores = bwaCores, clobber = None, outputDirectory = outputDir)
+        if bwaCores == "calculateFromSize":
+            self.bwaCores = runnerSupport.calculateCoresFromFileSize([pe1, pe2], 3)
+        elif type(bwaCores) == int:
+            self.bwaCores = bwaCores
+        elif type(bwaCores) == float:
+            self.bwaCores = max([int(bwaCores), 1])
+        else:
+            raise RuntimeError("BWA cores argument was not a number and not a direction to calculation from size.  Passed value: %s" %(bwaCores))
+        align = programRunners.BWAmem(sampleName, refGenomeFasta, pe1, pe2, cores = self.bwaCores, clobber = None, outputDirectory = outputDir)
         self.bwaCommandIndex = jobList.addJob(align.bwaCommand)
         self.samFile = align.samOut
         makeBam = programRunners.ViewSAMtoBAM(sampleName, self.samFile, refGenomeFasta, clobber = align.clobber, outputDirectory = outputDir)
@@ -51,6 +64,7 @@ class AlignMemAddReadGroups(object):
         addReadGroups = picardRunners.AddReadGroups(sampleName, self.bamFile, rgid = readGroupID, rglb = readGroupLibrary, rgpl = readGroupPlatform, rgsm = readGroupSampleName, rgpu = barcode, clobber = makeBam.clobber, outputDirectory = outputDir)
         self.addReadGroupsCommandIndex = jobList.addJob(addReadGroups.addReadGroupsCommand)
         deleteOriginalBAM = houseKeeping.Delete(makeBam.bamOut)
+        self.deleteOriginalBAMCommandIndex = jobList.addJob(deleteOriginalBAM.deleteCommand)
         addReadGroupsJobID = self.submitCommands(mock)
         self.returnData = runnerSupport.WorkflowReturn(addReadGroups.bamOut, addReadGroupsJobID, addReadGroups.clobber)
         
@@ -65,7 +79,7 @@ class AlignMemAddReadGroups(object):
         encodeBAM = genericRunners.HoffmanJob([align.jobID], self.viewSamCommandIndex, self.sampleName + self.library + "BAM", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
         deleteSAM = genericRunners.HoffmanJob([encodeBAM.jobID], self.deleteSamCommandIndex, self.sampleName + self.library + "delSAM", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
         addReadGroups = genericRunners.HoffmanJob([encodeBAM.jobID], self.addReadGroupsCommandIndex, self.sampleName + self.library + "AddRG", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
-        deleteOriginalBAM = genericRunners.HoffmanJob([addReadGroups.jobID], self.addReadGroupsCommandIndex, self.sampleName + self.library + "AddRG", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
+        deleteOriginalBAM = genericRunners.HoffmanJob([addReadGroups.jobID], self.deleteOriginalBAMCommandIndex, self.sampleName + self.library + "delOrigBAM", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
         return addReadGroups.jobID
     
 class MergeBAMFilesAndDeduplicate(object):
@@ -88,16 +102,24 @@ class MergeBAMFilesAndDeduplicate(object):
         self.emailAddress = emailAddress
         self.tempDir = jobList.tempDir
         self.sampleName = sampleName
-        merge = picardRunners.MergeSAMFiles(sampleName, bamFiles, sort_order, validation_stringency, create_index, clobber, outputDir)
-        self.mergeCommandIndex = jobList.addJob(merge.mergeSAMCommand)
-        self.deleteCommands = []
-        for bamFile in bamFiles:
-            deletePartialBAM = houseKeeping.Delete(bamFile)
-            self.deleteCommands.append(deletePartialBAM.deleteCommand)
-        self.deletePartialCommandIndex = jobList.addJob(self.deleteCommands)  #going to have just one node do all the deletions for this job
-        deduplicate = picardRunners.Deduplicate(sampleName, merge.bamOut, clobber = merge.clobber, outputDirectory = outputDir)
+        self.mergeCommandIndex = False  #default value to be changed if a merge is required
+        if len(bamFiles) > 1:  #if we have more than one bam file come in, we need to merge them first, otherwise we can skip the merge process
+            merge = picardRunners.MergeSAMFiles(sampleName, bamFiles, sort_order, validation_stringency, create_index, clobber, outputDir)
+            self.mergeCommandIndex = jobList.addJob(merge.mergeSAMCommand)
+            self.deleteCommands = []
+            for bamFile in bamFiles:
+                deletePartialBAM = houseKeeping.Delete(bamFile)
+                self.deleteCommands.append(deletePartialBAM.deleteCommand)
+            self.deletePartialCommandIndex = jobList.addJob(self.deleteCommands)  #going to have just one node do all the deletions for this job
+        if len(bamFiles) > 1:  #if we have multiple bam files and had to merge them
+            deduplicate = picardRunners.Deduplicate(sampleName, merge.bamOut, clobber = merge.clobber, outputDirectory = outputDir)
+        else:  #if we had one bam file come in, we can skip merging and go directly to deduplication
+            deduplicate = picardRunners.Deduplicate(sampleName, bamFiles[0], clobber = clobber, outputDirectory = outputDir)
         self.deduplicateCommandIndex = jobList.addJob(deduplicate.deduplicateCommand)
-        deleteOriginalBam = houseKeeping.Delete(merge.bamOut)
+        if len(bamFiles) > 1:
+            deleteOriginalBam = houseKeeping.Delete(merge.bamOut)
+        else:
+            deleteOriginalBam = houseKeeping.Delete(bamFiles[0])
         self.deleteOriginalBAMCommandIndex = jobList.addJob(deleteOriginalBam.deleteCommand)
         deduplicateJobID = self.submitCommands(mock)
         self.returnData = runnerSupport.WorkflowReturn(deduplicate.bamOut, deduplicateJobID, deduplicate.clobber)
@@ -105,9 +127,13 @@ class MergeBAMFilesAndDeduplicate(object):
     def submitCommands(self, mock):
         import genericRunners
         tempDir = self.tempDir
-        merge = genericRunners.HoffmanJob(self.lastJob.jobID, self.mergeCommandIndex, self.sampleName + "Merge", tempDir, self.emailAddress, "a", 1, mock = mock)
-        deletePartialBAM = genericRunners.HoffmanJob(merge.jobID, self.deletePartialCommandIndex, self.sampleName + "DelPart", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
-        deduplicate = genericRunners.HoffmanJob(merge.jobID, self.deduplicateCommandIndex, self.sampleName + "Dedup", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
+        if self.mergeCommandIndex:
+            merge = genericRunners.HoffmanJob(self.lastJob.jobID, self.mergeCommandIndex, self.sampleName + "Merge", tempDir, self.emailAddress, "a", 1, mock = mock)
+            deletePartialBAM = genericRunners.HoffmanJob(merge.jobID, self.deletePartialCommandIndex, self.sampleName + "DelPart", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
+            dedupeHold = merge.jobID
+        else:
+            dedupeHold = self.lastJob.jobID
+        deduplicate = genericRunners.HoffmanJob(dedupeHold, self.deduplicateCommandIndex, self.sampleName + "Dedup", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
         deleteOriginalBAM = genericRunners.HoffmanJob(deduplicate.jobID, self.deleteOriginalBAMCommandIndex, self.sampleName + "DelOrig", tempDir, self.emailAddress, "a", cores = 1, mock = mock)
         return deduplicate.jobID
     
@@ -155,8 +181,8 @@ class GATKProcessBAM(object):
         printReads = genericRunners.HoffmanJob(bqsrFirstPass.jobID, self.bqsrExecuteCommandIndex, self.sampleName + "bqsr2", tempDir, self.emailAddress, "a", 1, mock = mock)
         indexRecalBAM = genericRunners.HoffmanJob(printReads.jobID, self.indexRecalBAMCommandIndex, self.sampleName + "idxRecal", tempDir, self.emailAddress, "a", 1, mock = mock)
         bqsrAnalysis = genericRunners.HoffmanJob(bqsrFirstPass.jobID, self.bqsrAnalysisCommandIndex, self.sampleName + "bqsrData", tempDir, self.emailAddress, "a", 1, mock = mock)
-        deleteRealignedBAM = genericRunners.HoffmanJob(printReads.jobID, self.deleteRealignedBAMCommandIndex, self.sampleName + "DelRealign", tempDir, self.emailAddress, "a", 1, mock = mock)
-        depthOfCoverage = genericRunners.HoffmanJob(printReads.jobID, self.depthOfCoverageCommandIndex, self.sampleName + "depth", tempDir, self.emailAddress, "a", 1, mock = mock)
+        deleteRealignedBAM = genericRunners.HoffmanJob([printReads.jobID, bqsrAnalysis.jobID], self.deleteRealignedBAMCommandIndex, self.sampleName + "DelRealign", tempDir, self.emailAddress, "a", 1, mock = mock)
+        depthOfCoverage = genericRunners.HoffmanJob([printReads.jobID, indexRecalBAM.jobID], self.depthOfCoverageCommandIndex, self.sampleName + "depth", tempDir, self.emailAddress, "a", 2, mock = mock)
         return indexRecalBAM.jobID
     
 class HaplotypeCallerAndVQSR(object):
@@ -195,12 +221,12 @@ class HaplotypeCallerAndVQSR(object):
     def submitCommands(self, mock = False):
         import genericRunners
         tempDir = self.tempDir
-        haplotypeCaller = genericRunners.HoffmanJob(self.lastJob.jobID, self.haplotypeCallerCommandIndex, self.sampleName + "hapCall", tempDir, self.emailAddress, "a", 1, mock = mock)
-        jointGenotyper = genericRunners.HoffmanJob(haplotypeCaller.jobID, self.jointGenotypeCommandIndex, self.sampleName + "jointGeno", tempDir, self.emailAddress, "a", 1, mock = mock)
-        vqsrSNPAnalysis = genericRunners.HoffmanJob(jointGenotyper.jobID, self.vqsrSNPAnalysisCommandIndex, self.sampleName + "vqsrSNP1", tempDir, self.emailAddress, "a", 1, mock = mock)
-        vqsrSNPExecute = genericRunners.HoffmanJob(vqsrSNPAnalysis.jobID, self.vqsrSNPExecuteCommandIndex, self.sampleName + "vqsrSNP2", tempDir, self.emailAddress, "a", 1, mock = mock)
-        vqsrIndelAnalysis = genericRunners.HoffmanJob(vqsrSNPExecute.jobID, self.vqsrIndelAnalysisCommandIndex, self.sampleName + "vqsrIndel1", tempDir, self.emailAddress, "a", 1, mock = mock)
-        vqsrIndelExecute = genericRunners.HoffmanJob(vqsrIndelAnalysis.jobID, self.vqsrIndelExecuteCommandIndex, self.sampleName + "vqsrIndel2", tempDir, self.emailAddress, "a", 1, mock = mock)
+        haplotypeCaller = genericRunners.HoffmanJob(self.lastJob.jobID, self.haplotypeCallerCommandIndex, self.sampleName + "hapCall", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        jointGenotyper = genericRunners.HoffmanJob(haplotypeCaller.jobID, self.jointGenotypeCommandIndex, self.sampleName + "jointGeno", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        vqsrSNPAnalysis = genericRunners.HoffmanJob(jointGenotyper.jobID, self.vqsrSNPAnalysisCommandIndex, self.sampleName + "vqsrSNP1", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        vqsrSNPExecute = genericRunners.HoffmanJob(vqsrSNPAnalysis.jobID, self.vqsrSNPExecuteCommandIndex, self.sampleName + "vqsrSNP2", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        vqsrIndelAnalysis = genericRunners.HoffmanJob(vqsrSNPExecute.jobID, self.vqsrIndelAnalysisCommandIndex, self.sampleName + "vqsrIndel1", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        vqsrIndelExecute = genericRunners.HoffmanJob(vqsrIndelAnalysis.jobID, self.vqsrIndelExecuteCommandIndex, self.sampleName + "vqsrIndel2", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
         deleteSNPOnlyRecalVCF = genericRunners.HoffmanJob(vqsrIndelExecute.jobID, self.deleteSNPRecalOnlyVCFCommandIndex, self.sampleName + "delSNPRecalVCF", tempDir, self.emailAddress, "a", 1, mock = mock)
         return vqsrIndelExecute.jobID
     
@@ -311,3 +337,21 @@ class VarScanFilter(object):
         varScanSNP = genericRunners.HoffmanJob([varScanSomatic.jobID], self.varScanProcessSNPCommandIndex, self.sampleName + "varScanSNP", tempDir, self.emailAddress, "a", 1, mock = mock)
         varScanIndel = genericRunners.HoffmanJob([varScanSomatic.jobID], self.varScanProcessIndelCommandIndex, self.sampleName  +"varScanIndel", tempDir, self.emailAddress, "a", 1, mock = mock)
         return [varScanIndel.jobID, varScanSNP.jobID]
+    
+class Capstone(object):
+    
+    def __init__(self, jobList, sampleName, dependencyList, emailAddress = False, outputDir = "", mock = False):
+        import houseKeeping
+        self.sampleName = sampleName
+        self.dependencyList = dependencyList
+        self.tempDir = jobList.tempDir
+        self.emailAddress = emailAddress
+        capstone = houseKeeping.Capstone(sampleName, outputDir)
+        self.capstoneCommandIndex = jobList.addJob(capstone.capstoneCommand)
+        self.returnData = self.submitCommands(mock)
+        
+    def submitCommands(self, mock):
+        import genericRunners
+        tempDir = self.tempDir
+        capstone = genericRunners.HoffmanJob(self.dependencyList, self.capstoneCommandIndex, self.sampleName + "Cap", tempDir, self.emailAddress, "ea", 1, mock = mock)
+        return capstone.jobID
