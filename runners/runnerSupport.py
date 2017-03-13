@@ -24,6 +24,14 @@ def stripDirectoryAndExtension(fileName):
     nameNoExtension = ".".join(splitNameNoExtension)
     return nameNoExtension
 
+def baseFileName(fileName):
+    import os
+    return fileName.split(os.sep)[:-1].split.split(".")[0]
+
+def directory(fileName):
+    import os
+    return os.sep.join(fileName.split(os.sep)[:-1])
+
 def stripExtension(fileName):
     return ".".join(fileName.split(".")[:-1])
 

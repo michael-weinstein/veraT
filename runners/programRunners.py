@@ -11,7 +11,13 @@ programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
                 "bgzip" : os.getcwd() + "/bin/tabix/tabix-0.2.6/bgzip",
                 "tabix" : os.getcwd() + "/bin/tabix/tabix-0.2.6/tabix",
                 "varscan" : os.getcwd() + "/bin/VarScan.v2.4.0.jar",
-                "bam-readcount" : os.getcwd() + "bin/bam-readcount/bin/bam-readcount"}
+                "bam-readcount" : os.getcwd() + "/bin/bamReadCount/bin/bam-readcount",
+                "vcfReader" : os.getcwd() + "/runners/variantReaders/vcfReader.py",
+                "mutectReader" : os.getcwd() + "/runners/variantReaders/mutectReader.py",
+                "varScanPositions" : os.getcwd() + "/runners/variantReaders/varScanPositionPuller.py",
+                "varScanReader" : os.getcwd() + "/runners/variantReaders/varScanReader.py",
+                "perl" : "/usr/bin/perl",
+                "varScanFPFilter" : os.getcwd() + "/runners/variantReaders/fpfilter.pl"}
 
 class BWAlign(object):
     
@@ -560,8 +566,8 @@ class Varscan(object):
         self.baseName = self.outputDirectory + self.sampleName + ".varscan"
         self.snpOut = self.outputDirectory + self.sampleName + ".varscan.snp"
         self.indelOut = self.outputDirectory + self.sampleName + ".varscan.indel"
-        self.HcSNPOut = self.snpOut + "Somatic.hc.positions"
-        self.HcIndelOut = self.indelOut + "Somatic.hc.positions"
+        self.HcSNPOut = self.snpOut + "Somatic.hc"
+        self.HcIndelOut = self.indelOut + "Somatic.hc"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.snpOut, self.sampleName, self.clobber)
         self.clobber = runnerSupport.checkForOverwriteRisk(self.indelOut, self.sampleName, self.clobber)
         self.clobber = runnerSupport.checkForOverwriteRisk(self.HcSNPOut, self.sampleName, self.clobber)
@@ -610,11 +616,11 @@ class BAMReadCount(object):
         #DONE SANITY CHECKING. FOR NOW.
         self.checkRefGenome()
         self.makeAndCheckOutputFileNames()
-        bamReadcountCommand = self.createBAMReadcountCommand()
+        self.bamReadcountCommand = self.createBAMReadcountCommand()
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.readcountOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.inputPositions) + ".readcount"
+        self.readcountOut = self.outputDirectory + runnerSupport.stripDirectory(self.inputPositions) + ".readcount"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.readcountOut, self.sampleName, self.clobber)
 
     def checkRefGenome(self):
@@ -632,3 +638,201 @@ class BAMReadCount(object):
         argumentFormatter = runnerSupport.ArgumentFormatter(args)
         bamReadcountCommand = argumentFormatter.argumentString
         return bamReadcountCommand
+    
+class VarScanPositions(object):
+    
+    def __init__(self, sampleName, varScanData, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.varScanData = varScanData
+        self.clobber = clobber
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(self.varScanData, "VarScan output data")
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.positionPullerCommand = self.createPositionPullerCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.positionsOut = self.outputDirectory + runnerSupport.stripDirectory(self.varScanData) + ".positions"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.positionsOut, self.sampleName, self.clobber)
+
+    def createPositionPullerCommand(self):
+        import runnerSupport
+        flagValues = {"-f" : self.varScanData,
+                      "-o" : self.positionsOut}
+        args = [programPaths["python3"], programPaths["varScanPositions"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        positionPullerCommand = argumentFormatter.argumentString
+        return positionPullerCommand
+    
+class VCFReader(object):
+    
+    def __init__(self, sampleName, vcfData, tumorName, normalName, maxPValue = 0.05, minDepth = 10, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.vcfData = vcfData
+        self.tumorName = tumorName
+        self.normalName = normalName
+        self.clobber = clobber
+        self.maxPValue = maxPValue
+        self.minDepth = minDepth
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(self.vcfData, "VCF (variant call file)")
+        runnerSupport.checkTypes([self.minDepth], [int, bool])
+        runnerSupport.checkTypes([self.maxPValue], [float, int, bool])
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.vcfReaderCommand = self.createVCFReaderCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.acceptedOut = self.outputDirectory + runnerSupport.stripDirectory(self.vcfData) + ".accepted.pkl"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.acceptedOut, self.sampleName, self.clobber)
+
+    def createVCFReaderCommand(self):
+        import runnerSupport
+        flagValues = {"-f" : self.vcfData,
+                      "-o" : self.acceptedOut,
+                      "-t" : self.tumorName,
+                      "-n" : self.normalName,
+                      "-p" : self.maxPValue,
+                      "-d" : self.minDepth}
+        args = [programPaths["python3"], programPaths["vcfReader"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        vcfReaderCommand = argumentFormatter.argumentString
+        return vcfReaderCommand
+    
+class MutectReader(object):
+    
+    def __init__(self, sampleName, mutectData, minDepth = 10, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.mutectData = mutectData
+        self.clobber = clobber
+        self.minDepth = minDepth
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(self.mutectData, "Mutect output data")
+        runnerSupport.checkTypes([self.minDepth], [int, bool])
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.mutectReaderCommand = self.createMutectReaderCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.acceptedOut = self.outputDirectory + runnerSupport.stripDirectory(self.mutectData) + ".accepted.pkl"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.acceptedOut, self.sampleName, self.clobber)
+
+    def createMutectReaderCommand(self):
+        import runnerSupport
+        flagValues = {"-f" : self.mutectData,
+                      "-o" : self.acceptedOut,
+                      "-d" : self.minDepth}
+        args = [programPaths["python3"], programPaths["mutectReader"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        mutectReaderCommand = argumentFormatter.argumentString
+        return mutectReaderCommand
+    
+class VarScanReader(object):
+    
+    def __init__(self, sampleName, varScanData, minDepth = 10, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.varScanData = varScanData
+        self.clobber = clobber
+        self.minDepth = minDepth
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(self.varScanData, "VarScan output data")
+        runnerSupport.checkTypes([self.minDepth], [int, bool])
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.varScanReaderCommand = self.createVarScanReaderCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.acceptedOut = self.outputDirectory + runnerSupport.stripDirectory(self.varScanData) + ".accepted.pkl"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.acceptedOut, self.sampleName, self.clobber)
+
+    def createVarScanReaderCommand(self):
+        import runnerSupport
+        flagValues = {"-f" : self.varScanData,
+                      "-o" : self.acceptedOut,
+                      "-d" : self.minDepth}
+        args = [programPaths["python3"], programPaths["varScanReader"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        varScanReaderCommand = argumentFormatter.argumentString
+        return varScanReaderCommand
+
+class VarScanFPFilter(object):
+    
+    def __init__(self, sampleName, varScanData, bamReadCounts, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.varScanData = varScanData
+        self.bamReadCounts = bamReadCounts
+        self.clobber = clobber
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(self.varScanData, "VarScan output data")
+        runnerSupport.checkForRequiredFile(self.bamReadCounts, "BAM read count data")
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.fpFilterCommand = self.createFPFilterCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.baseFileName = self.outputDirectory + runnerSupport.stripDirectory(self.varScanData)
+        self.passOut = self.baseFileName + ".pass"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.passOut, self.sampleName, self.clobber)
+
+    def createFPFilterCommand(self):
+        import runnerSupport
+        flagValues = {"--output-basename" : self.baseFileName}
+        args = [programPaths["perl"], programPaths["varScanFPFilter"], self.varScanData, self.bamReadCounts, flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        fpFilterCommand = argumentFormatter.argumentString
+        return fpFilterCommand

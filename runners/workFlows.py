@@ -46,7 +46,7 @@ class AlignMemAddReadGroups(object):
         if self.library == "defaultLibrary":
             self.library = ""
         if bwaCores == "calculateFromSize":
-            self.bwaCores = runnerSupport.calculateCoresFromFileSize([pe1, pe2], 3)
+            self.bwaCores = runnerSupport.calculateCoresFromFileSize([pe1, pe2], 5)
         elif type(bwaCores) == int:
             self.bwaCores = bwaCores
         elif type(bwaCores) == float:
@@ -223,6 +223,90 @@ class HaplotypeCallerAndVQSR(object):
         tempDir = self.tempDir
         haplotypeCaller = genericRunners.HoffmanJob(self.lastJob.jobID, self.haplotypeCallerCommandIndex, self.sampleName + "hapCall", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
         jointGenotyper = genericRunners.HoffmanJob(haplotypeCaller.jobID, self.jointGenotypeCommandIndex, self.sampleName + "jointGeno", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        vqsrSNPAnalysis = genericRunners.HoffmanJob(jointGenotyper.jobID, self.vqsrSNPAnalysisCommandIndex, self.sampleName + "vqsrSNP1", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        vqsrSNPExecute = genericRunners.HoffmanJob(vqsrSNPAnalysis.jobID, self.vqsrSNPExecuteCommandIndex, self.sampleName + "vqsrSNP2", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        vqsrIndelAnalysis = genericRunners.HoffmanJob(vqsrSNPExecute.jobID, self.vqsrIndelAnalysisCommandIndex, self.sampleName + "vqsrIndel1", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        vqsrIndelExecute = genericRunners.HoffmanJob(vqsrIndelAnalysis.jobID, self.vqsrIndelExecuteCommandIndex, self.sampleName + "vqsrIndel2", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        deleteSNPOnlyRecalVCF = genericRunners.HoffmanJob(vqsrIndelExecute.jobID, self.deleteSNPRecalOnlyVCFCommandIndex, self.sampleName + "delSNPRecalVCF", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return vqsrIndelExecute.jobID
+    
+class HaplotypeCaller(object):
+    
+    def __init__(self, jobList, sampleName, refGenomeFasta, jointGenotypingFrozenGVCFDirectory, bamFile = False, intervals = False, dbSNP = False, emailAddress = False, clobber = None, outputDir = "", lastJob = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import runnerSupport
+        if not bamFile and not lastJob:
+            raise RuntimeError("No bam for processing specified in last job data or arguments.")
+        if not lastJob:
+            lastJob = runnerSupport.EmptyWorkflowReturn()
+        else:
+            clobber = lastJob.clobber
+        self.lastJob = lastJob
+        if not bamFile:
+            bamFile = lastJob.data
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        haplotypeCaller = gatkRunners.HaplotypeCaller(sampleName, bamFile, refGenomeFasta, intervals, dbSNP = dbSNP, clobber = clobber, outputDirectory = outputDir)
+        self.haplotypeCallerCommandIndex = jobList.addJob(haplotypeCaller.haplotypeCallerCommand)
+        haplotypeCallerJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(haplotypeCaller.gvcfOut, haplotypeCallerJobID, haplotypeCaller.clobber)
+        
+    def submitCommands(self, mock = False):
+        import genericRunners
+        tempDir = self.tempDir
+        haplotypeCaller = genericRunners.HoffmanJob(self.lastJob.jobID, self.haplotypeCallerCommandIndex, self.sampleName + "hapCall", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        return haplotypeCaller.jobID
+    
+class JointGenotypeAndVQSR(object):
+    
+    def __init__(self, jobList, sampleName, refGenomeFasta, jointGenotypingFrozenGVCFDirectory, snpResources, indelResources, gvcfs = False, intervals = False, dbSNP = False, emailAddress = False, clobber = None, outputDir = "", lastJob = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import runnerSupport
+        if not gvcfs and not lastJob:
+            raise RuntimeError("No bam for processing specified in last job data or arguments.")
+        if not type(gvcfs) in (bool, list, tuple):
+            gvcfs = [gvcfs]
+        if not lastJob:
+            lastJob = [runnerSupport.EmptyWorkflowReturn()]
+        else:
+            if not type(lastJob) in (list, tuple):
+                lastJob = [lastJob]
+            clobberCollector = []
+            for job in lastJob:
+                clobberCollector.append(job.clobber)
+            clobberSet = set(clobberCollector)
+            if True in clobberSet:
+                clobber = True
+            elif False in clobberSet:
+                clobber = False
+            else:
+                clobber = None
+        self.dependencies = [item.jobID for item in lastJob]
+        if not gvcfs:
+            gvcfs = [item.data for item in lastJob]
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        jointGenotype = gatkRunners.JointGenotype(sampleName, gvcfs, jointGenotypingFrozenGVCFDirectory, refGenomeFasta, dbSNP, clobber = clobber, outputDirectory = outputDir)
+        self.jointGenotypeCommandIndex = jobList.addJob(jointGenotype.jointGenotypeCommand)
+        vqsrSNP = gatkRunners.VQSR(sampleName, jointGenotype.vcfOut, snpResources, refGenomeFasta, mode = "SNP", clobber = jointGenotype.clobber, outputDirectory = outputDir)
+        self.vqsrSNPAnalysisCommandIndex = jobList.addJob(vqsrSNP.analysisCommand)
+        self.vqsrSNPExecuteCommandIndex =jobList.addJob(vqsrSNP.executionCommand)
+        vqsrIndel = gatkRunners.VQSR(sampleName, vqsrSNP.vcfOut, indelResources, refGenomeFasta, mode = "INDEL", clobber = vqsrSNP.clobber, outputDirectory = outputDir)
+        self.vqsrIndelAnalysisCommandIndex = jobList.addJob(vqsrIndel.analysisCommand)
+        self.vqsrIndelExecuteCommandIndex =jobList.addJob(vqsrIndel.executionCommand)
+        deleteSNPRecalOnlyVCF = houseKeeping.Delete(vqsrSNP.vcfOut)
+        self.deleteSNPRecalOnlyVCFCommandIndex = jobList.addJob(deleteSNPRecalOnlyVCF.deleteCommand)
+        vqsrIndelExecuteCommandJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(vqsrIndel.vcfOut, vqsrIndelExecuteCommandJobID, vqsrIndel.clobber)
+        
+    def submitCommands(self, mock = False):
+        import genericRunners
+        tempDir = self.tempDir
+        jointGenotyper = genericRunners.HoffmanJob(self.dependencies, self.jointGenotypeCommandIndex, self.sampleName + "jointGeno", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
         vqsrSNPAnalysis = genericRunners.HoffmanJob(jointGenotyper.jobID, self.vqsrSNPAnalysisCommandIndex, self.sampleName + "vqsrSNP1", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
         vqsrSNPExecute = genericRunners.HoffmanJob(vqsrSNPAnalysis.jobID, self.vqsrSNPExecuteCommandIndex, self.sampleName + "vqsrSNP2", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
         vqsrIndelAnalysis = genericRunners.HoffmanJob(vqsrSNPExecute.jobID, self.vqsrIndelAnalysisCommandIndex, self.sampleName + "vqsrIndel1", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)

@@ -392,6 +392,8 @@ class JointGenotype(object):
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
         self.refGenomeFasta = refGenomeFasta
         self.comparisonGVCFDir = comparisonGVCFDir
+        if type(gvcfIn) == str:
+            gvcfIn = [gvcfIn]
         self.gvcfIn = gvcfIn
         self.dbSNP = dbSNP
         if not outputDirectory:
@@ -426,6 +428,7 @@ class JointGenotype(object):
             if os.path.isfile(self.comparisonGVCFDir + file):
                 if file.lower().endswith("g.vcf") or file.lower().endswith(".gvcf"):
                     self.gvcfList.append(self.comparisonGVCFDir + file)
+        self.gvcfList = self.gvcfIn + self.gvcfList #allows for taking multiple GVCFs in for joint genotyping or a single one along with a frozen list.  Makes handling the arguments much easier to have them all as one list
         if not self.gvcfList:
             raise RuntimeError("No GVCFs were present in the specified comparison GVCF directory. Joint genotyping is impossible. Directory: %s" %(self.comparisonGVCFDir))
                 
@@ -445,7 +448,6 @@ class JointGenotype(object):
         import runnerSupport
         flagValues = {"-T" : "GenotypeGVCFs",
                       "-R" : self.refGenomeFasta,
-                      "--variant" : self.gvcfIn,
                       "flaggedlist" : ["--variant", self.gvcfList],
                       "-o" : self.vcfOut,
                       "-D" : self.dbSNP,
