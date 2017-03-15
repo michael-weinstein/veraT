@@ -1,3 +1,7 @@
 *.pyc
 references/**
 sampleData/**
+jesseFiles/**
+*Old*/**
+*.old*/**
+**/*.pyc

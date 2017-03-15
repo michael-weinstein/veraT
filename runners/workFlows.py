@@ -232,7 +232,7 @@ class HaplotypeCallerAndVQSR(object):
     
 class HaplotypeCaller(object):
     
-    def __init__(self, jobList, sampleName, refGenomeFasta, jointGenotypingFrozenGVCFDirectory, bamFile = False, intervals = False, dbSNP = False, emailAddress = False, clobber = None, outputDir = "", lastJob = False, mock = False):
+    def __init__(self, jobList, sampleName, refGenomeFasta, bamFile = False, intervals = False, dbSNP = False, emailAddress = False, clobber = None, outputDir = "", lastJob = False, mock = False):
         import houseKeeping
         import gatkRunners
         import runnerSupport
@@ -363,7 +363,105 @@ class Mutect1(object):
         rejectFilter = genericRunners.HoffmanJob(mutect1.jobID, self.rejectFilterCommandIndex, self.sampleName + "rejectFilter", tempDir, self.emailAddress, "a", 1, mock = mock)
         return rejectFilter.jobID
     
-class VarScanFilter(object):
+class Mutect1ToSomaticsData(object):
+    
+    def __init__(self, jobList, sampleName, refGenomeFasta, normalBAM = False, tumorBAM = False, intervals = False, dbSNP = False, emailAddress = False, clobber = None, outputDir = "", lastNormalJob = False, lastTumorJob = False, minDepth = 10, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        if not normalBAM and not lastNormalJob:
+            raise RuntimeError("No normal bam for processing specified in last job data or arguments.")
+        if not lastNormalJob:
+            lastNormalJob = runnerSupport.EmptyWorkflowReturn()
+        else:
+            clobberNormal = lastNormalJob.clobber
+        if not tumorBAM and not lastTumorJob:
+            raise RuntimeError("No tumor bam for processing specified in last job data or arguments.")
+        if not lastTumorJob:
+            lastTumorJob = runnerSupport.EmptyWorkflowReturn()
+        else:
+            clobberTumor = lastNormalJob.clobber
+        if clobber == None:
+            if clobberNormal or clobberTumor:
+                clobber = True
+            elif clobberNormal == False or clobberTumor == False:
+                clobber = False
+            else:
+                clobber = None #not absolutely necessary, since this was the initial condition
+        if not normalBAM:
+            normalBAM = lastNormalJob.data
+        if not tumorBAM:
+            tumorBAM = lastTumorJob.data
+        self.lastNormalJob = lastNormalJob
+        self.lastTumorJob = lastTumorJob
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        mutectAndFilter = Mutect1(jobList, sampleName, refGenomeFasta, normalBAM = normalBAM, tumorBAM = tumorBAM, intervals = intervals, dbSNP = dbSNP, emailAddress = emailAddress, clobber = clobber, outputDir = outputDir, lastNormalJob = lastNormalJob, lastTumorJob = lastTumorJob, mock = mock)
+        mutectReader = programRunners.MutectReader(sampleName, mutectAndFilter.returnData.data, minDepth = minDepth, clobber = mutectAndFilter.returnData.clobber, outputDirectory = outputDir)
+        self.mutectReaderJobIndex = jobList.addJob(mutectReader.mutectReaderCommand)
+        mutectReaderJobID = self.submitCommands(mock, mutectAndFilter)
+        self.returnData = runnerSupport.WorkflowReturn(mutectReader.acceptedOut, mutectReaderJobID, mutectReader.clobber)
+        
+    def submitCommands(self, mock, mutectAndFilter):
+        import genericRunners
+        tempDir = self.tempDir
+        mutectReader = genericRunners.HoffmanJob([mutectAndFilter.returnData.jobID], self.mutectReaderJobIndex, self.sampleName + "MuRead", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return mutectReader.jobID
+    
+class HaplotypeCallerSomaticsData(object):
+    
+    def __init__(self, jobList, sampleName, refGenomeFasta, jointGenotypingFrozenGVCFDirectory, snpResources, indelResources, normalBAM = False, tumorBAM = False, intervals = False, dbSNP = False, emailAddress = False, clobber = None, outputDir = "", lastNormalJob = False, lastTumorJob = False, maxPValue = 0.05, minDepth = 10, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        if not normalBAM and not lastNormalJob:
+            raise RuntimeError("No normal bam for processing specified in last job data or arguments.")
+        if not lastNormalJob:
+            lastNormalJob = runnerSupport.EmptyWorkflowReturn()
+        else:
+            clobberNormal = lastNormalJob.clobber
+        if not tumorBAM and not lastTumorJob:
+            raise RuntimeError("No tumor bam for processing specified in last job data or arguments.")
+        if not lastTumorJob:
+            lastTumorJob = runnerSupport.EmptyWorkflowReturn()
+        else:
+            clobberTumor = lastNormalJob.clobber
+        if clobber == None:
+            if clobberNormal or clobberTumor:
+                clobber = True
+            elif clobberNormal == False or clobberTumor == False:
+                clobber = False
+            else:
+                clobber = None #not absolutely necessary, since this was the initial condition
+        if not normalBAM:
+            normalBAM = lastNormalJob.data
+        if not tumorBAM:
+            tumorBAM = lastTumorJob.data
+        tumorBaseName = runnerSupport.baseFileName(tumorBAM)
+        normalBaseName = runnerSupport.baseFileName(normalBAM)
+        self.lastNormalJob = lastNormalJob
+        self.lastTumorJob = lastTumorJob
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        normalHaplotypeCaller = HaplotypeCaller(jobList, sampleName, refGenomeFasta, bamFile = normalBAM, intervals = intervals, dbSNP = dbSNP, emailAddress = emailAddress, clobber = clobber, outputDir = outputDir, lastJob = lastNormalJob, mock = mock)
+        tumorHaplotypeCaller = HaplotypeCaller(jobList, sampleName, refGenomeFasta, bamFile = tumorBAM, intervals = intervals, dbSNP = dbSNP, emailAddress = emailAddress, clobber = normalHaplotypeCaller.returnData.clobber, outputDir = outputDir, lastJob = lastTumorJob, mock = mock)
+        jointGenotyping = JointGenotypeAndVQSR(jobList, sampleName, refGenomeFasta, jointGenotypingFrozenGVCFDirectory, snpResources, indelResources, gvcfs = [normalHaplotypeCaller.returnData.data, tumorHaplotypeCaller.returnData.data], intervals = intervals, dbSNP = dbSNP, emailAddress = emailAddress, clobber = tumorHaplotypeCaller.returnData.clobber, outputDir = outputDir, lastJob = [normalHaplotypeCaller.returnData, tumorHaplotypeCaller.returnData], mock = mock)
+        vcfReader = programRunners.VCFReader(sampleName, jointGenotyping.returnData.data, tumorBaseName, normalBaseName, maxPValue, minDepth, jointGenotyping.returnData.clobber)
+        self.vcfReaderJobIndex = jobList.addJob(vcfReader.vcfReaderCommand)
+        vcfReaderJobID = self.submitCommands(mock, jointGenotyping)
+        self.returnData = runnerSupport.WorkflowReturn(vcfReader.acceptedOut, vcfReaderJobID, vcfReader.clobber)
+        
+    def submitCommands(self, mock, jointGenotyping):
+        import genericRunners
+        tempDir = self.tempDir
+        vcfReader = genericRunners.HoffmanJob([jointGenotyping.returnData.jobID], self.vcfReaderJobIndex, self.sampleName + "VCFRead", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return vcfReader.jobID
+    
+class VarScan(object):
     
     def __init__(self, jobList, sampleName, refGenomeFasta, normalBAM = False, tumorBAM = False, emailAddress = False, clobber = None, outputDir = "", lastNormalJob = False, lastTumorJob = False, mock = False):
         import houseKeeping
@@ -406,11 +504,9 @@ class VarScanFilter(object):
         self.varScanSomaticCommandIndex = jobList.addJob(varScan.varscanSomaticCommand)
         self.varScanProcessSNPCommandIndex = jobList.addJob(varScan.varscanProcessSNPCommand)
         self.varScanProcessIndelCommandIndex = jobList.addJob(varScan.varscanProcessIndelCommand)
-        #need to get the script for pulling positions from the data
-        #bamReadCount = programRunners.BAMReadCount()
         snpJobID, indelJobID = self.submitCommands(mock)
-        self.returnData = {"snp":runnerSupport.WorkflowReturn(varScan.snpOut, snpJobID, varScan.clobber),
-                      "indel":runnerSupport.WorkflowReturn(varScan.indelOut, indelJobID, varScan.clobber)}
+        self.returnData = {"snp":runnerSupport.WorkflowReturn(varScan.hcSomaticSNPOut, snpJobID, varScan.clobber),
+                      "indel":runnerSupport.WorkflowReturn(varScan.hcSomaticIndelOut, indelJobID, varScan.clobber)}
         
     def submitCommands(self, mock):
         import genericRunners
@@ -420,7 +516,135 @@ class VarScanFilter(object):
         varScanSomatic = genericRunners.HoffmanJob([mPileupNormal.jobID, mPileupTumor.jobID], self.varScanSomaticCommandIndex, self.sampleName + "varScanSom", tempDir, self.emailAddress, "a", 1, mock = mock)
         varScanSNP = genericRunners.HoffmanJob([varScanSomatic.jobID], self.varScanProcessSNPCommandIndex, self.sampleName + "varScanSNP", tempDir, self.emailAddress, "a", 1, mock = mock)
         varScanIndel = genericRunners.HoffmanJob([varScanSomatic.jobID], self.varScanProcessIndelCommandIndex, self.sampleName  +"varScanIndel", tempDir, self.emailAddress, "a", 1, mock = mock)
-        return [varScanIndel.jobID, varScanSNP.jobID]
+        return [varScanSNP.jobID, varScanIndel.jobID]
+    
+class VarScanSomaticsData(object):
+    
+    def __init__(self, jobList, sampleName, refGenomeFasta, normalBAM = False, tumorBAM = False, emailAddress = False, clobber = None, outputDir = "", lastNormalJob = False, lastTumorJob = False, maxWarnings = 10, minDepth = 10, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        if not normalBAM and not lastNormalJob:
+            raise RuntimeError("No normal bam for processing specified in last job data or arguments.")
+        if not lastNormalJob:
+            lastNormalJob = runnerSupport.EmptyWorkflowReturn()
+        else:
+            clobberNormal = lastNormalJob.clobber
+        if not tumorBAM and not lastTumorJob:
+            raise RuntimeError("No tumor bam for processing specified in last job data or arguments.")
+        if not lastTumorJob:
+            lastTumorJob = runnerSupport.EmptyWorkflowReturn()
+        else:
+            clobberTumor = lastNormalJob.clobber
+        if clobber == None:
+            if clobberNormal or clobberTumor:
+                clobber = True
+            elif clobberNormal == False or clobberTumor == False:
+                clobber = False
+            else:
+                clobber = None #not absolutely necessary, since this was the initial condition
+        if not normalBAM:
+            normalBAM = lastNormalJob.data
+        if not tumorBAM:
+            tumorBAM = lastTumorJob.data
+        self.lastNormalJob = lastNormalJob
+        self.lastTumorJob = lastTumorJob
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        varScan = VarScan(jobList, sampleName, refGenomeFasta, normalBAM = normalBAM, tumorBAM = tumorBAM, emailAddress = emailAddress, clobber = clobber, outputDir = outputDir, lastNormalJob = lastNormalJob, lastTumorJob = lastTumorJob, mock = mock)
+        snpPositionPuller = programRunners.VarScanPositions(sampleName, varScan.returnData["snp"].data, clobber = varScan.returnData["snp"].clobber, outputDirectory = outputDir)
+        self.snpPositionPullerCommandIndex = jobList.addJob(snpPositionPuller.positionPullerCommand)
+        indelPositionPuller = programRunners.VarScanPositions(sampleName, varScan.returnData["indel"].data, clobber = snpPositionPuller.clobber, outputDirectory = outputDir)
+        self.indelPositionPullerCommandIndex = jobList.addJob(indelPositionPuller.positionPullerCommand)
+        snpBAMReadCount = programRunners.BAMReadCount(sampleName, tumorBAM, snpPositionPuller.positionsOut, refGenomeFasta, maxWarnings = maxWarnings, clobber = indelPositionPuller.clobber, outputDirectory = outputDir)
+        self.snpBAMReadCountCommandIndex = jobList.addJob(snpBAMReadCount.bamReadcountCommand)
+        indelBAMReadCount = programRunners.BAMReadCount(sampleName, tumorBAM, indelPositionPuller.positionsOut, refGenomeFasta, maxWarnings = maxWarnings, clobber = snpBAMReadCount.clobber, outputDirectory = outputDir)
+        self.indelBAMReadCountCommandIndex = jobList.addJob(indelBAMReadCount.bamReadcountCommand)
+        snpFPFilter = programRunners.VarScanFPFilter(sampleName, varScan.returnData["snp"].data, snpBAMReadCount.readcountOut, clobber = indelBAMReadCount.clobber, outputDirectory = outputDir)
+        self.snpFPFilterCommandIndex = jobList.addJob(snpFPFilter.fpFilterCommand)
+        indelFPFilter = programRunners.VarScanFPFilter(sampleName, varScan.returnData["indel"].data, indelBAMReadCount.readcountOut, clobber = snpFPFilter.clobber, outputDirectory = outputDir)
+        self.indelFPFilterCommandIndex = jobList.addJob(indelFPFilter.fpFilterCommand)
+        snpVarScanReader = programRunners.VarScanReader(self, sampleName, snpFPFilter.passOut, minDepth = minDepth, clobber = clobber, outputDirectory = outputDir)
+        self.snpVarScanReaderCommandIndex = jobList.addJob(snpVarScanReader.varScanReaderCommand)
+        indelVarScanReader = programRunners.VarScanReader(self, sampleName, indelFPFilter.passOut, minDepth = minDepth, clobber = clobber, outputDirectory = outputDir)
+        self.indelVarScanReaderCommandIndex = jobList.addJob(snpVarScanReader.varScanReaderCommand)
+        snpJobID, indelJobID = self.submitCommands(mock, varScan)
+        self.returnData = {"snp":runnerSupport.WorkflowReturn(snpVarScanReader.acceptedOut, snpJobID, snpVarScanReader.clobber),
+                           "indel":runnerSupport.WorkflowReturn(indelVarScanReader.acceptedOut, snpJobID, indelVarScanReader.clobber)}
+        
+    def submitCommands(self, mock, varScan):
+        import genericRunners
+        tempDir = self.tempDir
+        snpPositionPuller = genericRunners.HoffmanJob([varScan.returnData["snp"].jobID], self.snpPositionPullerCommandIndex, self.sampleName + "snpPos", tempDir, self.emailAddress, "a", 1, mock = mock)
+        indelPositionPuller = genericRunners.HoffmanJob([varScan.returnData["indel"].jobID], self.indelPositionPullerCommandIndex, self.sampleName + "indelPos", tempDir, self.emailAddress, "a", 1, mock = mock)
+        snpBAMReadCount = genericRunners.HoffmanJob([snpPositionPuller.jobID], self.snpBAMReadCountCommandIndex, self.sampleName + "snpBAMRead", tempDir, self.emailAddress, "a", 1, mock = mock)
+        indelBAMReadCount = genericRunners.HoffmanJob([indelPositionPuller.jobID], self.indelBAMReadCountCommandIndex, self.sampleName + "indelBAMRead", tempDir, self.emailAddress, "a", 1, mock = mock)
+        snpFPFilter = genericRunners.HoffmanJob([snpBAMReadCount.jobID], self.snpFPFilterCommandIndex, self.sampleName + "snpFPF", tempDir, self.emailAddress, "a", 1, mock = mock)
+        indelFPFilter = genericRunners.HoffmanJob([indelBAMReadCount.jobID], self.indelFPFilterCommandIndex, self.sampleName + "indelFPF", tempDir, self.emailAddress, "a", 1, mock = mock)
+        snpVarScanReader = genericRunners.HoffmanJob([snpFPFilter.jobID], self.snpFPFilterCommandIndex, self.sampleName + "snpVSR", tempDir, self.emailAddress, "a", 1, mock = mock)
+        indelVarScanReader = genericRunners.HoffmanJob([indelFPFilter.jobID], self.indelVarScanReaderCommandIndex, self.sampleName + "indelVSR", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return [snpVarScanReader.jobID, indelVarScanReader.jobID]
+    
+class CombineVarScanHaplotypeCallerMutectSomatics(object):
+    
+    def __init__(self, jobList, sampleName, varScanSomaticIndels = False, varScanSomaticSNPs = False, haplotypeCallerSomatics = False, mutect1Somatics = False, emailAddress = False, clobber = None, outputDir = "", varScanSNPSomaticsJob = False, varScanIndelSomaticsJob = False, varScanCombinedSomaticsJob = False, haplotypeCallerSomaticsJob = False, mutect1SomaticsJob = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        if not (varScanSomaticIndels and varScanSomaticSNPs) or (varScanIndelSomaticsJob and varScanSNPSomaticsJob) or varScanCombinedSomaticsJob:
+            raise RuntimeError("There appears to be missing data for VarScan")
+        if not (haplotypeCallerSomatics or haplotypeCallerSomaticsJob):
+            raise RuntimeError("Missing haplotype caller data.")
+        if not (mutect1Somatics or mutect1SomaticsJob):
+            raise RuntimeError("Missing mutect1 data")
+        if varScanCombinedSomaticsJob:
+            varScanIndelSomaticsJob = varScanCombinedSomaticsJob["indel"]
+            varScanSNPSomaticsJob = varScanCombinedSomaticsJob["snp"]
+        if not varScanIndelSomaticsJob:
+            varScanIndelSomaticsJob = runnerSupport.EmptyWorkflowReturn()
+        if not varScanSNPSomaticsJob:
+            varScanSNPSomaticsJob = runnerSupport.EmptyWorkflowReturn()
+        if not haplotypeCallerSomaticsJob:
+            haplotypeCallerSomaticsJob = runnerSupport.EmptyWorkflowReturn()
+        if not mutect1SomaticsJob:
+            mutect1SomaticsJob = runnerSupport.EmptyWorkflowReturn()
+        if not tumorBAM and not lastTumorJob:
+            raise RuntimeError("No tumor bam for processing specified in last job data or arguments.")
+        clobberSet = set([clobber] + [item.clobber for item in [haplotypeCallerSomaticsJob, mutect1SomaticsJob, varScanIndelSomaticsJob, varScanSNPSomaticsJob]])
+        if True in clobberSet:
+            clobber = True
+        elif False  in clobberSet:
+            clobber = False
+        elif None in clobberSet:
+            clobber = None
+        if not varScanSomaticIndels:
+            varScanSomaticIndels = "varscan,indel,%s" %varScanIndelSomaticsJob.data
+        if not varScanSomaticSNPs:
+            varScanSomaticSNPs = "varscan,snp,%s" %varScanSNPSomaticsJob.data
+        if not haplotypeCallerSomatics:
+            haplotypeCallerSomatics = "haplotypecaller,%s" %haplotypeCallerSomaticsJob.data
+        if not mutect1Somatics:
+            mutect1Somatics = "mutect1,%s" %mutect1SomaticsJob.data
+        self.varScanIndelSomaticsJob = varScanIndelSomaticsJob
+        self.varScanSNPSomaticsJob = varScanSNPSomaticsJob
+        self.haplotypeCallerSomaticsJob = haplotypeCallerSomaticsJob
+        self.mutect1SomaticsJob = mutect1SomaticsJob
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        variantCombine = programRunners.VariantCombine(sampleName, [varScanSomaticIndels, varScanSomaticSNPs, haplotypeCallerSomatics, mutect1Somatics], minHits = 2, maxHits = False, clobber = clobber, outputDirectory = outputDir)
+        self.variantCombineCommandIndex = jobList.addJob(variantCombine.variantCombineCommand)
+        variantCombineJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(variantCombine.acceptedSomaticVariants, vcfReaderJobID, variantCombine.clobber)
+        
+    def submitCommands(self, mock):
+        import genericRunners
+        tempDir = self.tempDir
+        variantCombine = genericRunners.HoffmanJob([self.varScanIndelSomaticsJob.jobID, self.varScanSNPSomaticsJob.jobID, self.haplotypeCallerSomaticsJob.jobID, self.mutect1SomaticsJob.jobID], self.variantCombineCommandIndex, self.sampleName + "Combine", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return variantCombine.jobID
     
 class Capstone(object):
     

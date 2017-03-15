@@ -17,7 +17,8 @@ programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
                 "varScanPositions" : os.getcwd() + "/runners/variantReaders/varScanPositionPuller.py",
                 "varScanReader" : os.getcwd() + "/runners/variantReaders/varScanReader.py",
                 "perl" : "/usr/bin/perl",
-                "varScanFPFilter" : os.getcwd() + "/runners/variantReaders/fpfilter.pl"}
+                "varScanFPFilter" : os.getcwd() + "/runners/variantReaders/fpfilter.pl",
+                "variantCombine" : os.getcwd() + "/runners/variantReaders/variantCombine.py"}
 
 class BWAlign(object):
     
@@ -566,12 +567,12 @@ class Varscan(object):
         self.baseName = self.outputDirectory + self.sampleName + ".varscan"
         self.snpOut = self.outputDirectory + self.sampleName + ".varscan.snp"
         self.indelOut = self.outputDirectory + self.sampleName + ".varscan.indel"
-        self.HcSNPOut = self.snpOut + "Somatic.hc"
-        self.HcIndelOut = self.indelOut + "Somatic.hc"
+        self.hcSomaticSNPOut = self.snpOut + ".Somatic.hc"
+        self.hcSomaticIndelOut = self.indelOut + ".Somatic.hc"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.snpOut, self.sampleName, self.clobber)
         self.clobber = runnerSupport.checkForOverwriteRisk(self.indelOut, self.sampleName, self.clobber)
-        self.clobber = runnerSupport.checkForOverwriteRisk(self.HcSNPOut, self.sampleName, self.clobber)
-        self.clobber = runnerSupport.checkForOverwriteRisk(self.HcIndelOut, self.sampleName, self.clobber)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.hcSomaticSNPOut, self.sampleName, self.clobber)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.hcSomaticIndelOut, self.sampleName, self.clobber)
 
     def createVarscanCommand(self):
         import runnerSupport
@@ -836,3 +837,47 @@ class VarScanFPFilter(object):
         argumentFormatter = runnerSupport.ArgumentFormatter(args)
         fpFilterCommand = argumentFormatter.argumentString
         return fpFilterCommand
+    
+class VariantCombine(object):
+    
+    def __init__(self, sampleName, variantDataList, minHits = False, maxHits = False, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        if type(variantDataList) == str:
+            variantDataList = [variantDataList]
+        self.variantDataList = variantDataList
+        self.minHits = minHits
+        self.maxHits = maxHits
+        self.clobber = clobber
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        for file in variantDataList:
+            runnerSupport.checkForRequiredFile(file.split(",")[-1], "Variant data file")
+        runnerSupport.checkTypes([minHits, maxHits], (bool, int))
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.variantCombineCommand = self.createCombineCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.acceptedSomaticVariants = self.outputDirectory + self.sampleName + ".acceptedSomatics.txt"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.acceptedSomaticVariants, self.sampleName, self.clobber)
+
+    def createCombineCommand(self):
+        import runnerSupport
+        flagValues = {"flaggedlist" : ["-v", self.variantDataList],
+                      "-x" : self.maxHits,
+                      "-m" : self.minHits,
+                      "-o" : self.acceptedSomaticVariants}
+        args = [programPaths["python3"], programPaths["variantCombine"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        variantCombineCommand = argumentFormatter.argumentString
+        return variantCombineCommand
