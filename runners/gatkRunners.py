@@ -188,10 +188,13 @@ class BQSR(object):
     
 class HaplotypeCaller(object):
     
-    def __init__(self, sampleName, bamIn, refGenomeFasta, bedFile = False, emitRefConfidence = "GVCF", variantIndexType = "LINEAR", variantIndexParameter = 128000, dbSNP = False, annotation = ["Coverage", "AlleleBalance"], intervalPadding = 100, pairHiddenMarkovModel = "VECTOR_LOGLESS_CACHING", allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
+    def __init__(self, sampleName, bamIn, refGenomeFasta, bedFile = False, emitRefConfidence = "GVCF", standCallConf = False, variantIndexType = "LINEAR", variantIndexParameter = 128000, dbSNP = False, annotation = ["Coverage", "AlleleBalance"], intervalPadding = 100, pairHiddenMarkovModel = "VECTOR_LOGLESS_CACHING", allowPotentiallyMisencodedQualityScores = True, dontUseSoftClippedBases = False, cores = 1, clobber = False, outputDirectory = ""):
         import runnerSupport
         self.clobber = clobber
+        self.cores = cores
         self.bedFile = bedFile
+        self.dontUseSoftClippedBases = dontUseSoftClippedBases
+        self.standCallConf = standCallConf
         self.sampleName = sampleName
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
         self.refGenomeFasta = refGenomeFasta
@@ -213,14 +216,19 @@ class HaplotypeCaller(object):
                 self.outputDirectory = outputDirectory + os.sep
             else:
                 self.outputDirectory = outputDirectory
+        if not type(bamIn) == list:
+            bamIn = [bamIn]
         self.bamIn = bamIn
         #SANITY TEST ALL THE THINGS
-        runnerSupport.checkForRequiredFile(self.bamIn, "BAM file for realignment")
+        for file in self.bamIn:
+            runnerSupport.checkForRequiredFile(file, "BAM file for haplotype calling")
         if self.dbSNP:
             runnerSupport.checkForRequiredFile(self.dbSNP, "dbSNP file")
         if self.bedFile:
             runnerSupport.checkForRequiredFile(self.bedFile, "BED file containing target intervals")
-        if not type(self.emitRefConfidence) == int and not self.emitRefConfidence == "GVCF":
+        if not type(self.standCallConf) == int and not self.standCallConf == False:
+            raise RuntimeError("Invalid standRefConfidence value passed to haplotypeCaller %s" %self.standCallConf)
+        if not type(self.emitRefConfidence) == int and not self.emitRefConfidence == "GVCF" and not self.emitRefConfidence == False:
             raise RuntimeError("Invalid emitRefConfidence value passed to haplotype caller: %s" %(self.emitRefConfidence))
         if not type(self.variantIndexParameter):
             raise RuntimeError("Variant Index Parameter value was not an integer.")
@@ -233,8 +241,13 @@ class HaplotypeCaller(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.gvcfOut = self.outputDirectory + self.sampleName + ".gvcf"
-        self.clobber = runnerSupport.checkForOverwriteRisk(self.gvcfOut, self.sampleName, self.clobber)
+        if self.emitRefConfidence == "GVCF":
+            self.gvcfOut = self.outputDirectory + self.sampleName + ".gvcf"
+            self.outputFileName = self.gvcfOut
+        else:
+            self.vcfOut = self.outputDirectory + self.sampleName + ".vcf"
+            self.outputFileName = self.vcfOut
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.outputFileName, self.sampleName, self.clobber)
         
     def checkRefGenome(self):
         import os
@@ -245,11 +258,17 @@ class HaplotypeCaller(object):
 
     def createGATKCommand(self):
         import runnerSupport
+        if self.cores > 1:
+            nctArg = self.cores
+        else:
+            nctArg = False
         flagValues = {"-T" : "HaplotypeCaller",
                       "-R" : self.refGenomeFasta,
-                      "-I" : self.bamIn,
-                      "-o" : self.gvcfOut,
+                      "flaggedlist1": ["-I", self.bamIn],
+                      "-o" : self.outputFileName,
                       "-L" : self.bedFile,
+                      "-nct" : nctArg,
+                      "-stand_call_conf" : self.standCallConf,
                       "--emitRefConfidence": self.emitRefConfidence,
                       "--variant_index_type" : self.variantIndexType,
                       "--variant_index_parameter" : self.variantIndexParameter,
@@ -257,7 +276,8 @@ class HaplotypeCaller(object):
                       "--interval_padding" : self.intervalPadding,
                       "-pairHMM" : self.pairHiddenMarkovModel,
                       "flaggedlist" : ["--annotation", self.annotation],
-                      "--allow_potentially_misencoded_quality_scores" : self.allowPotentiallyMisencodedQualityScores}
+                      "--allow_potentially_misencoded_quality_scores" : self.allowPotentiallyMisencodedQualityScores,
+                      "-dontUseSoftClippedBases" : self.dontUseSoftClippedBases}
         gatkArgs = [programPaths["java"], "-Xmx1g", "-jar", gatkPath, flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         haplotypeCallerCommand = argumentFormatter.argumentString
@@ -406,7 +426,8 @@ class JointGenotype(object):
             else:
                 self.outputDirectory = outputDirectory
         #SANITY TEST ALL THE THINGS
-        runnerSupport.checkForRequiredFile(self.gvcfIn, "GVCF for joint genotype calling")
+        for gvcf in self.gvcfIn:
+            runnerSupport.checkForRequiredFile(gvcf, "GVCF for joint genotype calling")
         if self.dbSNP:
             runnerSupport.checkForRequiredFile(dbSNP, "dbSNP file")
         runnerSupport.checkTypes([self.allowPotentiallyMisencodedQualityScores], bool)
@@ -602,3 +623,60 @@ class VQSR(object):
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         executionCommand = argumentFormatter.argumentString
         return (analysisCommand, executionCommand)
+    
+class SplitNCigarReads(object):
+    
+    def __init__(self, sampleName, bamIn, refGenomeFasta, readFilter = "ReassignOneMappingQuality", reassignMappingQualityFrom = 255, reassignMappingQualityTo = 60, uArg = "ALLOW_N_CIGAR_READS", allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.clobber = clobber
+        self.sampleName = sampleName
+        self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
+        self.refGenomeFasta = refGenomeFasta
+        self.readFilter = readFilter
+        self.reassignMappingQualityFrom = reassignMappingQualityFrom
+        self.reassignMappingQualityTo = reassignMappingQualityTo
+        self.uArg = uArg
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        self.bamIn = bamIn
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(self.bamIn, "BAM file for split and trim cleanup")
+        self.checkRefGenome()
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.splitAndTrimCommand = self.createGATKCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.bamOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.bamIn) + ".splitTrim" + ".bam"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.bamOut, self.sampleName, self.clobber)
+        
+    def checkRefGenome(self):
+        import os
+        import runnerSupport
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta, "reference genome file")
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index", "Please move the index to this location or use samtools faidx to create one.")
+        runnerSupport.checkForRequiredFile(".".join(self.refGenomeFasta.split(".")[:-1]) + ".dict", "reference genome dictionary", "Please move the index to this location or use picard create sequence dictionary to create one.")
+
+    def createGATKCommand(self):
+        import runnerSupport
+        flagValuesCleanUp = {"-T" : "SplitNCigarReads",
+                             "-R" : self.refGenomeFasta,
+                             "-I" : self.bamIn,
+                             "-o" : self.bamOut,
+                             "-rf" : self.readFilter,
+                             "-RMQF" : self.reassignMappingQualityFrom,
+                             "-RMQT" : self.reassignMappingQualityTo,
+                             "-U" : self.uArg,
+                             "--allow_potentially_misencoded_quality_scores" : self.allowPotentiallyMisencodedQualityScores}
+        gatkArgs = [programPaths["java"], "-Xmx10g", "-jar", gatkPath, flagValuesCleanUp]
+        argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
+        cleanUpCommand = argumentFormatter.argumentString
+        return cleanUpCommand

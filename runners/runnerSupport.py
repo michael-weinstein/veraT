@@ -26,7 +26,7 @@ def stripDirectoryAndExtension(fileName):
 
 def baseFileName(fileName):
     import os
-    return fileName.split(os.sep)[:-1].split.split(".")[0]
+    return fileName.split(os.sep)[-1].split(".")[0]
 
 def directory(fileName):
     import os
@@ -100,7 +100,7 @@ def checkTypes(values, requiredTypes):
     if not type(values) == list:
         values = [values]
     typesList = [type(value) for value in values]
-    if not type(requiredTypes) == list:
+    if not type(requiredTypes) in (list, tuple):
         requiredTypes = [requiredTypes]
     for value in values:
         assert type(value) in requiredTypes, "Incorrect value type found while type checking. Required: %s\nFound:\n%s\%s" %(requiredTypes, values, typesList)

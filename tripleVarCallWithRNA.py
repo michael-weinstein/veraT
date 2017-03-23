@@ -43,6 +43,8 @@ class CheckArgs(object):
         parser.add_argument("-n", "--normalCriteria", help = "Fields that describe normal sequence files.", required = True)
         parser.add_argument("-d", "--sequenceDirectory", help = "Directory containing all sequence files needed (they can be in subdirectories).", required = True)
         parser.add_argument("-r", "--referenceGenomeFasta", help = "Reference genome to use. It should already be BWA and GATK indexed.", default = "references/UCSC_hg19/ucsc.hg19.fasta")
+        parser.add_argument("--hisatIndexData" , help = "Hisat genome index prefix", default = "references/UCSC_hg19/hisat2/UCSC_hg19")
+        parser.add_argument("-a", "--rnaCriteria", help = "Fields that describe RNA sequence data", required = True)
         parser.add_argument("-i", "--intervals", help = "Intervals file for variant calling.", default = "references/SeqCap_EZ_Exome_v3_capture_headless.padded100bp.merge.bed")
         parser.add_argument("-j", "--jointGenotypingGVCFDirectory", help = "Directory containing a frozen set of GVCFs for joint genotyping.", default = "references/HCSNV.hg19")
         parser.add_argument("-e", "--email", help = "Email address to notify for job progress.", default = False)
@@ -56,6 +58,7 @@ class CheckArgs(object):
         self.mock = rawArgs.mock
         self.tumorCriteria = rawArgs.tumorCriteria.split(",")
         self.normalCriteria = rawArgs.normalCriteria.split(",")
+        self.rnaCriteria = rawArgs.rnaCriteria.split(",")
         sequenceDirectory = rawArgs.sequenceDirectory
         if not os.path.isdir(sequenceDirectory):
             raise RuntimeError("Sequence Directory %s not found." %(sequenceDirectory))
@@ -74,6 +77,7 @@ class CheckArgs(object):
         self.snp1000g = rawArgs.snp1000g
         self.indel1000g = rawArgs.indel1000g
         self.makeRecalRefs()
+        self.hisatIndexData = rawArgs.hisatIndexData
         
     def makeRecalRefs(self):
         from runners.gatkRunners import VQSRResource
@@ -107,6 +111,7 @@ def main():
     from runners.fastqDirectoryParser import FastqFile
     normalSeqTree = getFileMatrix(args.sequenceDirectory, args.normalCriteria)
     tumorSeqTree = getFileMatrix(args.sequenceDirectory, args.tumorCriteria)
+    rnaSeqTree = getFileMatrix(args.sequenceDirectory, args.rnaCriteria)
     tumorSampleName = list(tumorSeqTree.keys())[0]
     outputDir = args.outputDir
     normalSampleName = list(normalSeqTree.keys())[0]
@@ -140,25 +145,45 @@ def main():
             else:
                 tumorAlignJobs.addJob(workFlows.AlignMemAddReadGroups(jobList, tumorSampleName + str(lane), args.refGenomeFasta, currentLane[1].filePath, currentLane[2].filePath, readGroupSampleName = tumorSampleName, readGroupID = lane, clobber = tumorAlignJobs.clobber, emailAddress = args.email, outputDir = outputDir, mock = args.mock).returnData)
 
+    #iteratively set up alignment jobs for tumor RNA sample (iterate over sample, then lane, then take pairs of paired ends if available)
+    rnaAlignJobs = False
+    for sample in keys(rnaSeqTree): #should be only one here
+        for lane in keys(rnaSeqTree[sample]):
+            currentLane = rnaSeqTree[sample][lane]
+            if not 2 in currentLane:
+                currentLane[2] = FastqFile(False)
+            sampleFile = currentLane[1]
+            if not rnaAlignJobs:
+                rnaAlignJobs = workFlows.AlignHisat2AddReadGroups(jobList, tumorSampleName + "RNA" + str(lane), args.refGenomeFasta, args.hisatIndexData, currentLane[1].filePath, pe2 = currentLane[2].filePath, readGroupID = lane, readGroupSampleName = tumorSampleName + "RNA", emailAddress = False, clobber = tumorAlignJobs.clobber, outputDir = outputDir, mock = args.mock).returnData
+            else:
+                rnaAlignJobs.addJob(workFlows.AlignHisat2AddReadGroups(jobList, tumorSampleName + "RNA" + str(lane), args.refGenomeFasta, args.hisatIndexData, currentLane[1].filePath, pe2 = currentLane[2].filePath, readGroupID = lane, readGroupSampleName = tumorSampleName + "RNA", emailAddress = False, clobber = rnaAlignJobs.clobber, outputDir = outputDir, mock = args.mock).returnData)
+
     #merge and deduplicate normal and tumor samples
     normalDeduplicateJobs = workFlows.MergeBAMFilesAndDeduplicate(jobList, normalSampleName, clobber = tumorAlignJobs.clobber, emailAddress = args.email, outputDir = outputDir, lastJob = normalAlignJobs, mock = args.mock).returnData
     tumorDeduplicateJobs = workFlows.MergeBAMFilesAndDeduplicate(jobList, tumorSampleName, clobber = normalDeduplicateJobs.clobber, emailAddress = args.email, outputDir = outputDir, lastJob = tumorAlignJobs, mock = args.mock).returnData
+    rnaDeduplicateJobs = workFlows.MergeBAMFilesAndDeduplicate(jobList, tumorSampleName + "RNA", clobber = tumorDeduplicateJobs.clobber, emailAddress = args.email, outputDir = outputDir, lastJob = rnaAlignJobs, mock = args.mock).returnData
     
     #GATK process BAMs
     normalProcessJobs = workFlows.GATKProcessBAM(jobList, normalSampleName, args.refGenomeFasta, dbSNP = args.dbSNP, intervals = args.intervals, clobber = tumorDeduplicateJobs.clobber, emailAddress = args.email, outputDir = outputDir, lastJob = normalDeduplicateJobs, mock = args.mock).returnData
     tumorProcessJobs = workFlows.GATKProcessBAM(jobList, tumorSampleName, args.refGenomeFasta, dbSNP = args.dbSNP, intervals = args.intervals, clobber = normalProcessJobs.clobber, emailAddress = args.email, outputDir = outputDir, lastJob = tumorDeduplicateJobs, mock = args.mock).returnData
+    rnaSplitAndTrim = workFlows.SplitAndTrimRNAData(jobList, tumorSampleName + "RNA", args.refGenomeFasta, emailAddress = args.email, clobber = tumorProcessJobs.clobber, outputDir = outputDir, lastJob = rnaDeduplicateJobs, mock = args.mock).returnData
+    rnaProcessJobs = workFlows.GATKProcessBAM(jobList, tumorSampleName + "RNA", args.refGenomeFasta, dbSNP = args.dbSNP, intervals = args.intervals, clobber = rnaSplitAndTrim.clobber, emailAddress = args.email, outputDir = outputDir, lastJob = rnaSplitAndTrim, mock = args.mock).returnData
     
     #Run variant calling
     #GATK Haplotype Caller
     haplotypeCallerSomaticsJob = workFlows.HaplotypeCallerSomaticsData(jobList, tumorSampleName, args.refGenomeFasta, args.jointGenotypingGVCFDirectory, args.snpVQSRResources, args.indelVQSRResources, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = tumorProcessJobs.clobber, outputDir = outputDir, lastNormalJob = normalProcessJobs, lastTumorJob = tumorProcessJobs, maxPValue = 0.05, minDepth = 10, mock = args.mock).returnData
+    
     #Mutect1
     mutect1SomaticsJob = workFlows.Mutect1ToSomaticsData(jobList, tumorSampleName, args.refGenomeFasta, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = haplotypeCallerSomaticsJob.clobber, outputDir = outputDir, lastNormalJob = normalProcessJobs, lastTumorJob = tumorProcessJobs, minDepth = 10, mock = args.mock).returnData
 
     #VarScan
     varScanSomaticsJob = workFlows.VarScanSomaticsData(jobList, tumorSampleName, args.refGenomeFasta, emailAddress = args.email, clobber = mutect1SomaticsJob.clobber, outputDir = outputDir, lastNormalJob = normalProcessJobs, lastTumorJob = tumorProcessJobs, maxWarnings = 10, minDepth = 10, mock = args.mock).returnData
+    
+    #RNAVariantCalling with GATK
+    rnaAnalysisJob = workFlows.HaplotypeCallerRNAAnalysis(jobList, tumorSampleName, args.refGenomeFasta, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = varScanSomaticsJob["indel"].clobber, outputDir = outputDir, lastRNAJob = rnaProcessJobs, lastTumorJob = tumorProcessJobs, mock = args.mock).returnData
   
     #VariantCombine
-    combineSomaticVariantsJob = workFlows.CombineVarScanHaplotypeCallerMutectSomatics(jobList, tumorSampleName, emailAddress = args.email, clobber = varScanSomaticsJob["indel"].clobber, outputDir = outputDir, varScanCombinedSomaticsJob = varScanSomaticsJob, haplotypeCallerSomaticsJob = haplotypeCallerSomaticsJob, mutect1SomaticsJob = mutect1SomaticsJob, mock = args.mock).returnData
+    combineSomaticVariantsJob = workFlows.CombineVarScanHaplotypeCallerMutectSomatics(jobList, tumorSampleName, emailAddress = args.email, clobber = rnaAnalysisJob.clobber, outputDir = outputDir, varScanCombinedSomaticsJob = varScanSomaticsJob, haplotypeCallerSomaticsJob = haplotypeCallerSomaticsJob, mutect1SomaticsJob = mutect1SomaticsJob, mock = args.mock).returnData
   
     #Capstone to mark completion
     capstoneDependencies = [combineSomaticVariantsJob.jobID]

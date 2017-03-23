@@ -187,8 +187,9 @@ class AddReadGroups(object):
     
 class Deduplicate(object):
     
-    def __init__(self, sampleName, bamIn, validation_stringency = "LENIENT", create_index = True, clobber = False, outputDirectory = ""):
+    def __init__(self, sampleName, bamIn, validation_stringency = "LENIENT", create_index = True, revertToBaseName = False, clobber = False, outputDirectory = ""):
         import runnerSupport
+        self.revertToBaseName = revertToBaseName
         self.sampleName = sampleName
         if not outputDirectory:
             self.outputDirectory = ""
@@ -217,9 +218,13 @@ class Deduplicate(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.bamOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.bamIn) + ".deduped.bam"
+        if self.revertToBaseName:
+            self.bamOut = self.outputDirectory + self.sampleName + ".deduped.bam"
+            self.metricsOut = self.outputDirectory + self.sampleName + ".dedupe.metrics"
+        else:
+            self.bamOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.bamIn) + ".deduped.bam"
+            self.metricsOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.bamIn) + ".dedupe.metrics"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.bamOut, self.sampleName, self.clobber)
-        self.metricsOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.bamIn) + ".dedupe.metrics"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.metricsOut, self.sampleName, self.clobber)
         
     def createPicardCommand(self):

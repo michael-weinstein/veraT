@@ -150,11 +150,9 @@ class VCFSampleData(object):
         self.alleleDepths = [int(item) for item in self.alleleDepths]
         self.depth = sum(self.alleleDepths)
         
-        
-
 class VCFDataLine(object):
     
-    def __init__(self, rawLine, header):
+    def __init__(self, rawLine, header, hashList = False, skipIfNotInList = True):
         self.header = header
         self.rawLine = rawLine.strip()
         self.lineArray = self.rawLine.split("\t")
@@ -163,9 +161,24 @@ class VCFDataLine(object):
         self.referenceAllele = self.lineArray[header.ref]
         self.altAlleleList = self.lineArray[header.alt].split(",")
         self.alleleList = [self.referenceAllele] + self.altAlleleList
-        formatData = VCFLineFormatData(self.lineArray[header.format])
-        for i in range(9, len(self.lineArray)):
-            self.lineArray[i] = VCFSampleData(self.lineArray[i], formatData)
+        self.hashValues = []
+        for allele in self.altAlleleList:
+            self.hashValues.append((self.contig, int(self.position), self.referenceAllele, allele))
+        self.inHashList = self.checkHashList(hashList)
+        if hashList and not self.inHashList and skipIfNotInList:
+            pass
+        else:
+            formatData = VCFLineFormatData(self.lineArray[header.format])
+            for i in range(9, len(self.lineArray)):
+                self.lineArray[i] = VCFSampleData(self.lineArray[i], formatData)
+            
+    def checkHashList(self, hashList):
+        if not hashList:
+            return False
+        for hashValue in self.hashValues:
+            if hashValue in hashList:
+                return True
+        return False
         
     def checkForSomatic(self, normal, tumor):
         tumorAlleleSet = set(tumor.genotype)

@@ -18,7 +18,8 @@ programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
                 "varScanReader" : os.getcwd() + "/runners/variantReaders/varScanReader.py",
                 "perl" : "/usr/bin/perl",
                 "varScanFPFilter" : os.getcwd() + "/runners/variantReaders/fpfilter.pl",
-                "variantCombine" : os.getcwd() + "/runners/variantReaders/variantCombine.py"}
+                "variantCombine" : os.getcwd() + "/runners/variantReaders/variantCombine.py",
+                "hisat2" : os.getcwd() + "/bin/hisat2/hisat2"}
 
 class BWAlign(object):
     
@@ -206,7 +207,7 @@ class BWAmem(object):
             inputs = [self.pe1, self.pe2]
         else:
             inputs = self.pe1
-        bwaArgs = [programPaths["bwa"], "mem", self.refGenomeFasta, inputs, ">", self.samOut]
+        bwaArgs = [programPaths["bwa"], "mem", "-t %s" %self.cores,  self.refGenomeFasta, inputs, ">", self.samOut]
         argumentFormatter = runnerSupport.ArgumentFormatter(bwaArgs, delimiter = " ")
         bwaCommand = argumentFormatter.argumentString
         return bwaCommand
@@ -706,7 +707,7 @@ class VCFReader(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.acceptedOut = self.outputDirectory + runnerSupport.stripDirectory(self.vcfData) + ".accepted.pkl"
+        self.acceptedOut = self.outputDirectory + runnerSupport.stripDirectory(self.vcfData) + ".haplotypeCaller.accepted.pkl"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.acceptedOut, self.sampleName, self.clobber)
 
     def createVCFReaderCommand(self):
@@ -748,7 +749,7 @@ class MutectReader(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.acceptedOut = self.outputDirectory + runnerSupport.stripDirectory(self.mutectData) + ".accepted.pkl"
+        self.acceptedOut = self.outputDirectory + runnerSupport.stripDirectory(self.mutectData) + ".mutect1.accepted.pkl"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.acceptedOut, self.sampleName, self.clobber)
 
     def createMutectReaderCommand(self):
@@ -787,7 +788,7 @@ class VarScanReader(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.acceptedOut = self.outputDirectory + runnerSupport.stripDirectory(self.varScanData) + ".accepted.pkl"
+        self.acceptedOut = self.outputDirectory + runnerSupport.stripDirectory(self.varScanData) + ".varScan.accepted.pkl"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.acceptedOut, self.sampleName, self.clobber)
 
     def createVarScanReaderCommand(self):
@@ -881,3 +882,65 @@ class VariantCombine(object):
         argumentFormatter = runnerSupport.ArgumentFormatter(args)
         variantCombineCommand = argumentFormatter.argumentString
         return variantCombineCommand
+    
+class Hisat2Align(object):
+    
+    def __init__(self, sampleName, refGenomePrefix, pairedEnd1File, pairedEnd2File = "", cores = 1, clobber = None, outputDirectory = ""):
+        import os
+        import runnerSupport
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        self.sampleName = sampleName
+        self.pe1 = pairedEnd1File
+        self.pe2 = pairedEnd2File
+        self.cores = cores
+        self.threads = cores
+        self.refGenomePrefix = refGenomePrefix
+        self.clobber = clobber
+        #SANITY CHECK ALL THE THINGS
+        if not type(self.pe1) == str or not self.pe1:
+            raise RuntimeError("Paired end 1 file must be specified and must be a string.  Value passed was \"%s\"" %(self.pe1))
+        runnerSupport.checkForRequiredFile(self.pe1, "paired end 1 file")
+        if not type(self.pe2) == str:
+            raise RuntimeError("Paired end 2 file must be specified and must be a string.  Value passed was \"%s\"" %(self.pe2))
+        if self.pe2:
+            runnerSupport.checkForRequiredFile(self.pe2, "paired end 2 file")
+            self.pairedEnd = True
+        else:
+            self.pairedEnd = False
+        if not type(self.threads) == int and self.threads > 0:
+            raise RuntimeError("Thread count must be a positive integer. %s was passed." %(self.threads))
+        if not type(self.refGenomePrefix) == str or not self.refGenomePrefix:
+            raise RuntimeError("Reference genome fasta must be passed as a string. %s was passed." %(self.refGenomePrefix))
+        self.checkRefGenome()
+        self.makeAndCheckOutputFileNames()
+        #DONE SANITY CHECKING ALL THE THINGS. FOR NOW.
+        self.hisat2Command = self.makeHisat2Command()
+    
+    def checkRefGenome(self):
+        import runnerSupport
+        import os
+        runnerSupport.checkForRequiredFile(self.refGenomePrefix + ".1.ht2", "reference genome index")
+    
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.samOut = self.outputDirectory + self.sampleName + ".sam"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.samOut, self.sampleName, self.clobber)
+                
+    def makeHisat2Command(self):
+        import runnerSupport
+        flagValues = {"-S" : self.samOut,
+                      "-1" : self.pe1,
+                      "-2" : self.pe2,
+                      "-p" : self.cores}
+        hisat2Args = [programPaths["hisat2"], self.refGenomePrefix, flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(hisat2Args)
+        hisat2Command = argumentFormatter.argumentString
+        return hisat2Command
