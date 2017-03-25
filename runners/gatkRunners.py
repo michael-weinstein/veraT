@@ -405,10 +405,11 @@ class Mutect1(object):
     
 class JointGenotype(object):
     
-    def __init__(self, sampleName, gvcfIn, comparisonGVCFDir, refGenomeFasta, dbSNP = False,  allowPotentiallyMisencodedQualityScores = True, clobber = False, outputDirectory = ""):
+    def __init__(self, sampleName, gvcfIn, comparisonGVCFDir, refGenomeFasta, dbSNP = False,  allowPotentiallyMisencodedQualityScores = True, standCallConf = False, clobber = False, outputDirectory = ""):
         import runnerSupport
         self.clobber = clobber
         self.sampleName = sampleName
+        self.standardCallConf = standCallConf
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
         self.refGenomeFasta = refGenomeFasta
         self.comparisonGVCFDir = comparisonGVCFDir
@@ -439,19 +440,20 @@ class JointGenotype(object):
         
     def makeGVCFList(self):
         import os
-        if not self.comparisonGVCFDir.endswith(os.sep):
-            self.comparisonGVCFDir += os.sep
-        if not os.path.isdir(self.comparisonGVCFDir):
-            raise RuntimeError("GVCF comparison set directory not found at %s" %(self.comparisonGVCFDir))
-        rawDirectoryListing = os.listdir(self.comparisonGVCFDir)
         self.gvcfList = []
-        for file in rawDirectoryListing:
-            if os.path.isfile(self.comparisonGVCFDir + file):
-                if file.lower().endswith("g.vcf") or file.lower().endswith(".gvcf"):
-                    self.gvcfList.append(self.comparisonGVCFDir + file)
+        if self.comparisonGVCFDir:
+            if not self.comparisonGVCFDir.endswith(os.sep):
+                self.comparisonGVCFDir += os.sep
+            if not os.path.isdir(self.comparisonGVCFDir):
+                raise RuntimeError("GVCF comparison set directory not found at %s" %(self.comparisonGVCFDir))
+            rawDirectoryListing = os.listdir(self.comparisonGVCFDir)
+            for file in rawDirectoryListing:
+                if os.path.isfile(self.comparisonGVCFDir + file):
+                    if file.lower().endswith("g.vcf") or file.lower().endswith(".gvcf"):
+                        self.gvcfList.append(self.comparisonGVCFDir + file)
         self.gvcfList = self.gvcfIn + self.gvcfList #allows for taking multiple GVCFs in for joint genotyping or a single one along with a frozen list.  Makes handling the arguments much easier to have them all as one list
         if not self.gvcfList:
-            raise RuntimeError("No GVCFs were present in the specified comparison GVCF directory. Joint genotyping is impossible. Directory: %s" %(self.comparisonGVCFDir))
+            raise RuntimeError("No GVCFs were present in the specified comparison GVCF directory or the GVFC input list. Joint genotyping is impossible. Directory: %s" %(self.comparisonGVCFDir))
                 
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
@@ -469,6 +471,7 @@ class JointGenotype(object):
         import runnerSupport
         flagValues = {"-T" : "GenotypeGVCFs",
                       "-R" : self.refGenomeFasta,
+                      "-stand_call_conf" : self.standardCallConf,
                       "flaggedlist" : ["--variant", self.gvcfList],
                       "-o" : self.vcfOut,
                       "-D" : self.dbSNP,

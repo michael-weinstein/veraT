@@ -339,6 +339,48 @@ class HaplotypeCaller(object):
         tempDir = self.tempDir
         haplotypeCaller = genericRunners.HoffmanJob(self.lastJob.jobID, self.haplotypeCallerCommandIndex, self.sampleName + "hapCall", tempDir, self.emailAddress, "a", 3, memory = 16, mock = mock)
         return haplotypeCaller.jobID
+  
+class JointGenotype(object):
+    
+    def __init__(self, jobList, sampleName, refGenomeFasta, jointGenotypingFrozenGVCFDirectory = False, gvcfs = False, intervals = False, dbSNP = False, emailAddress = False, standCallConf = False, clobber = None, outputDir = "", lastJob = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import runnerSupport
+        if not gvcfs and not lastJob:
+            raise RuntimeError("No bam for processing specified in last job data or arguments.")
+        if not type(gvcfs) in (bool, list, tuple):
+            gvcfs = [gvcfs]
+        if not lastJob:
+            lastJob = [runnerSupport.EmptyWorkflowReturn()]
+        else:
+            if not type(lastJob) in (list, tuple):
+                lastJob = [lastJob]
+            clobberCollector = []
+            for job in lastJob:
+                clobberCollector.append(job.clobber)
+            clobberSet = set(clobberCollector)
+            if True in clobberSet:
+                clobber = True
+            elif False in clobberSet:
+                clobber = False
+            else:
+                clobber = None
+        self.dependencies = [item.jobID for item in lastJob]
+        if not gvcfs:
+            gvcfs = [item.data for item in lastJob]
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        jointGenotype = gatkRunners.JointGenotype(sampleName, gvcfs, jointGenotypingFrozenGVCFDirectory, refGenomeFasta, dbSNP, standCallConf = standCallConf, clobber = clobber, outputDirectory = outputDir)
+        self.jointGenotypeCommandIndex = jobList.addJob(jointGenotype.jointGenotypeCommand)
+        jointGenotyperJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(jointGenotype.vcfOut, jointGenotyperJobID, jointGenotype.clobber)
+        
+    def submitCommands(self, mock = False):
+        import genericRunners
+        tempDir = self.tempDir
+        jointGenotyper = genericRunners.HoffmanJob(self.dependencies, self.jointGenotypeCommandIndex, self.sampleName + "jointGeno", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        return jointGenotyper.jobID
     
 class JointGenotypeAndVQSR(object):
     
@@ -536,10 +578,37 @@ class HaplotypeCallerSomaticsData(object):
         vcfReaderJobID = self.submitCommands(mock, jointGenotyping)
         self.returnData = runnerSupport.WorkflowReturn(vcfReader.acceptedOut, vcfReaderJobID, vcfReader.clobber)
         
-    def submitCommands(self, mock, jointGenotyping):
+class VCFReader(object):
+    
+    def __init__(self, jobList, normalSampleName, tumorSampleName, vcf = False, emailAddress = False, clobber = None, outputDir = "", lastJob = False, maxPValue = 0.05, minDepth = 10, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        if clobber == None:
+            clobber = lastJob.clobber
+        else:
+            clobber = clobber
+        if lastJob:
+            self.vcf = lastJob.data
+        else:
+            self.vcf = vcf
+            lastJob = runnerSupport.EmptyWorkflowReturn()
+        if not self.vcf:
+            raise RuntimeError("Error: No VCF to analyze was given.")
+        self.lastJob = lastJob
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = tumorSampleName
+        vcfReader = programRunners.VCFReader(tumorSampleName, self.vcf, tumorSampleName, normalSampleName, maxPValue, minDepth, clobber, outputDirectory = outputDir)
+        self.vcfReaderJobIndex = jobList.addJob(vcfReader.vcfReaderCommand)
+        vcfReaderJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(vcfReader.acceptedOut, vcfReaderJobID, vcfReader.clobber)
+        
+    def submitCommands(self, mock):
         import genericRunners
         tempDir = self.tempDir
-        vcfReader = genericRunners.HoffmanJob([jointGenotyping.returnData.jobID], self.vcfReaderJobIndex, self.sampleName + "VCFRead", tempDir, self.emailAddress, "a", 1, mock = mock)
+        vcfReader = genericRunners.HoffmanJob(self.lastJob.jobID, self.vcfReaderJobIndex, self.sampleName + "VCFRead", tempDir, self.emailAddress, "a", 1, mock = mock)
         return vcfReader.jobID
     
 class HaplotypeCallerRNAAnalysis(object):
@@ -773,6 +842,53 @@ class CombineVarScanHaplotypeCallerMutectSomatics(object):
         tempDir = self.tempDir
         variantCombine = genericRunners.HoffmanJob([self.varScanIndelSomaticsJob.jobID, self.varScanSNPSomaticsJob.jobID, self.haplotypeCallerSomaticsJob.jobID, self.mutect1SomaticsJob.jobID], self.variantCombineCommandIndex, self.sampleName + "Combine", tempDir, self.emailAddress, "a", 1, mock = mock)
         return variantCombine.jobID
+    
+class getRNASupport(object):
+    
+    def __init__(self, jobList, sampleName, rnaSampleName, somaticVariantPickle = False, rnaVariantVCF = False, minDifference = 10, emailAddress = False, clobber = None, outputDir = "", combineSomaticsJob = False, rnaVariantCallJob = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        self.minDifference = minDifference
+        if not (somaticVariantPickle or combineSomaticsJob):
+            raise RuntimeError("No combined somatics job data or combined somatics file passed.")
+        if not (rnaVariantCallJob or rnaVariantVCF):
+            raise RuntimeError("No RNA variant call job data or RNA variant call VCF passed.")
+        if rnaVariantVCF:
+            self.rnaVariantVCF = rnaVariantVCF
+        else:
+            self.rnaVariantVCF = rnaVariantCallJob.data
+        if somaticVariantPickle:
+            self.somaticVariantPickle = somaticVariantPickle
+        else:
+            self.somaticVariantPickle = combineSomaticsJob.data
+        if not combineSomaticsJob:
+            combineSomaticsJob = runnerSupport.EmptyWorkflowReturn()
+        if not rnaVariantCallJob:
+            rnaVariantCallJob = runnerSupport.EmptyWorkflowReturn()
+        self.combineSomaticsJob = combineSomaticsJob
+        self.rnaVariantCallJob = rnaVariantCallJob
+        clobberSet = set([clobber] + [item.clobber for item in [combineSomaticsJob, rnaVariantCallJob]])
+        if True in clobberSet:
+            clobber = True
+        elif False  in clobberSet:
+            clobber = False
+        elif None in clobberSet:
+            clobber = None
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        getRNASupport = programRunners.GetRNASupport(sampleName, rnaSampleName, self.somaticVariantPickle, self.rnaVariantVCF, minDifference, clobber = clobber, outputDirectory = outputDir)
+        self.getRNASupportCommand = jobList.addJob(getRNASupport.getRNASupportCommand)
+        getRNASupportJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(getRNASupport.rnaSupportOut, getRNASupportJobID, getRNASupport.clobber)
+        
+    def submitCommands(self, mock):
+        import genericRunners
+        tempDir = self.tempDir
+        getRNASupport = genericRunners.HoffmanJob([self.rnaVariantCallJob.jobID, self.combineSomaticsJob.jobID], self.getRNASupportCommand, self.sampleName + "AddRNA", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return getRNASupport.jobID
     
 class Capstone(object):
     

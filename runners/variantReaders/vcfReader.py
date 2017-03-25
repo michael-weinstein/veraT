@@ -117,17 +117,17 @@ class VCFLineFormatData(object):
     
 class VCFSampleData(object):
     
-    def __init__(self, rawField, formatData, minimumDepth = 10):
+    def __init__(self, rawField, formatData, alleleList, minimumDepth = 10):
         if rawField.strip().startswith("./."):
             self.called = False
         else:
             self.called = True
-            self.analyzeData(rawField.strip(), formatData)
+            self.analyzeData(rawField.strip(), formatData, alleleList)
             
     def __bool__(self):
         return self.called
             
-    def analyzeData(self, rawField, formatData):
+    def analyzeData(self, rawField, formatData, alleleList):
         self.abnormal = False
         self.fieldSplit = rawField.strip().split(":")
         self.rawGenotype = self.fieldSplit[formatData.gt]
@@ -148,6 +148,9 @@ class VCFSampleData(object):
             self.abnormal = True
         self.alleleDepths = self.rawAlleleDepth.split(",")
         self.alleleDepths = [int(item) for item in self.alleleDepths]
+        self.alleleDepthTable = {}
+        for key, value in enumerate(self.alleleDepths):
+            self.alleleDepthTable[alleleList[key]] = value
         self.depth = sum(self.alleleDepths)
         
 class VCFDataLine(object):
@@ -164,21 +167,21 @@ class VCFDataLine(object):
         self.hashValues = []
         for allele in self.altAlleleList:
             self.hashValues.append((self.contig, int(self.position), self.referenceAllele, allele))
-        self.inHashList = self.checkHashList(hashList)
+        self.checkHashList(hashList)
         if hashList and not self.inHashList and skipIfNotInList:
             pass
         else:
             formatData = VCFLineFormatData(self.lineArray[header.format])
             for i in range(9, len(self.lineArray)):
-                self.lineArray[i] = VCFSampleData(self.lineArray[i], formatData)
+                self.lineArray[i] = VCFSampleData(self.lineArray[i], formatData, self.alleleList)
             
     def checkHashList(self, hashList):
         if not hashList:
             return False
+        self.inHashList = []
         for hashValue in self.hashValues:
             if hashValue in hashList:
-                return True
-        return False
+                self.inHashList.append(hashValue)
         
     def checkForSomatic(self, normal, tumor):
         tumorAlleleSet = set(tumor.genotype)

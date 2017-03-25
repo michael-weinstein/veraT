@@ -19,6 +19,7 @@ programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
                 "perl" : "/usr/bin/perl",
                 "varScanFPFilter" : os.getcwd() + "/runners/variantReaders/fpfilter.pl",
                 "variantCombine" : os.getcwd() + "/runners/variantReaders/variantCombine.py",
+                "getRNASupport" : os.getcwd() + "/runners/variantReaders/getRNASupport.py",
                 "hisat2" : os.getcwd() + "/bin/hisat2/hisat2"}
 
 class BWAlign(object):
@@ -944,3 +945,47 @@ class Hisat2Align(object):
         argumentFormatter = runnerSupport.ArgumentFormatter(hisat2Args)
         hisat2Command = argumentFormatter.argumentString
         return hisat2Command
+    
+class GetRNASupport(object):
+    
+    def __init__(self, sampleName, rnaSampleName, somaticVariantPickle, rnaVariantVCF, minDifference = 10, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.somaticVariantPickle = somaticVariantPickle
+        self.rnaVariantVCF = rnaVariantVCF
+        self.minDifference = 10
+        self.clobber = clobber
+        self.sampleName = sampleName
+        self.rnaSampleName = rnaSampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(somaticVariantPickle, "Pickle of filtered somatic variants")
+        runnerSupport.checkForRequiredFile(rnaVariantVCF, "VCF of observed RNA variants")
+        runnerSupport.checkTypes(minDifference, (bool, int))
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.getRNASupportCommand = self.createRNASupportCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.rnaSupportOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".rnaSupport.txt"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.rnaSupportOut, self.sampleName, self.clobber)
+
+    def createRNASupportCommand(self):
+        import runnerSupport
+        flagValues = {"-v" : self.rnaVariantVCF,
+                      "-s" : self.somaticVariantPickle,
+                      "-r" : self.rnaSampleName,
+                      "-m" : self.minDifference,
+                      "-o" : self.rnaSupportOut}
+        args = [programPaths["python3"], programPaths["getRNASupport"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        getRNASupportCommand = argumentFormatter.argumentString
+        return getRNASupportCommand

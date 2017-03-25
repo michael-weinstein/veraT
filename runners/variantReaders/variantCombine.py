@@ -9,7 +9,7 @@ class CheckArgs():  #class that checks arguments and ultimately returns a valida
         parser.add_argument("-v", "--variants", help = "Pickles of somatic variant dictionaries. Can be comma-separated into source, SNP/INDEL, path.  source and SNP/INDEL are optional, but a source is needed if SNP/INDEL is given.", dest = "variantFiles", action = "append", required = True)
         parser.add_argument("-m", "--minHits", help = "Minimum hits required across the variant info files to be included in output", type = int)
         parser.add_argument("-x", "--maxHits", help = "Maximum hits allowed for a file to be included in the output", type = int)
-        parser.add_argument("-o", "--output", help = "Output pickle file name", required = True)
+        parser.add_argument("-o", "--output", help = "Output file name", required = True)
         rawArgs = parser.parse_args()
         variantFiles = rawArgs.variantFiles
         self.variantFiles = [VariantPickleFile(fileData) for fileData in variantFiles]
@@ -150,7 +150,7 @@ def sortVariantFiles(variantFiles):
             raise RuntimeError("Got a source with inappropriate number of variant types %s\nDict: %s" %(source, variantFileDict[source]))
     return variantFileDict
 
-def createOutputTable(sortedAcceptedVariantInfoTuples, variantDicts):
+def createOutputTextTable(sortedAcceptedVariantInfoTuples, variantDicts):
     sources = sorted(list(variantDicts.keys()))
     headerLine = ["contig", "position", "ref_allele", "alt_allele", "CountMethod"] + sources
     outputTable = [headerLine]
@@ -168,6 +168,39 @@ def createOutputTable(sortedAcceptedVariantInfoTuples, variantDicts):
         outputLine = outputLine + [hits] + countData
         outputLine = (str(field) for field in outputLine)
         outputTable.append(outputLine)
+    return outputTable
+
+def roundedAverage(data):
+    return round(sum(data)/len(data))
+
+def createOutputPickleTable(sortedAcceptedVariantInfoTuples, variantDicts):
+    import variantDataHandler
+    sources = list(variantDicts.keys())
+    genericEntryDict = {"hits" : 0}
+    for source in sources:
+        genericEntryDict[source] = False
+    outputTable = {}
+    for variant in sortedAcceptedVariantInfoTuples:
+        normalDepth = []
+        normalSupporting = []
+        tumorDepth = []
+        tumorSupporting = []
+        outputTable[variant] = genericEntryDict.copy()
+        for source in sources:
+            if variant in variantDicts[source]:
+                outputTable[variant][source] = variantDicts[source][variant]
+                outputTable[variant]["hits"] += 1
+                normalDepth.append(variantDicts[source][variant].normalDepth)
+                normalSupporting.append(variantDicts[source][variant].normalSupporting)
+                tumorDepth.append(variantDicts[source][variant].tumorDepth)
+                tumorSupporting.append(variantDicts[source][variant].tumorSupporting)
+        normalDepth = roundedAverage(normalDepth)
+        normalSupporting = roundedAverage(normalSupporting)
+        tumorDepth = roundedAverage(tumorDepth)
+        tumorSupporting = roundedAverage(tumorSupporting)
+        contig, position, ref, alt = variant
+        outputTable[variant]["combined"] = variantDataHandler.SomaticVariantData(contig, position, ref, alt, normalDepth, normalSupporting, tumorDepth, tumorSupporting)
+        pvalue = outputTable[variant]["combined"].fisherTest()
     return outputTable
 
 def main():
@@ -192,12 +225,17 @@ def main():
             raise RuntimeError("Got a source with inappropriate variant types %s\nDict: %s" %(source, variantFileDict[source]))
     filteredVariants = dictionaryHitFilter(variantDicts, args.minHits, args.maxHits)
     sortVariantDataTuples(filteredVariants)
-    outputTable = createOutputTable(filteredVariants, variantDicts)
-    outputFile = open(args.output, 'w')
-    for line in outputTable:
-        print("\t".join(line), file = outputFile)
-    outputFile.close()
-    print("Found %s variants with sufficient representation." %(len(outputTable) - 1))
+    if args.output.upper().endswith(".PKL"):
+        outputTable = createOutputPickleTable(filteredVariants, variantDicts)
+        outputFile = open(args.output, 'wb')
+        pickle.dump(outputTable, outputFile)
+        outputFile.close()
+    else:
+        outputTable = createOutputTextTable(filteredVariants, variantDicts)
+        outputFile = open(args.output, 'w')
+        for line in outputTable:
+            print("\t".join(line), file = outputFile)
+        outputFile.close()
     quit()
     
 if __name__ == '__main__':

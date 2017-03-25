@@ -79,3 +79,16 @@ class SomaticVariantData(object):
         printItems = [self.contig, self.position, self.ref, self.alt, self.tumorSupporting, self.tumorDepth, self.normalSupporting, self.normalDepth]
         printItems = [str(item) for item in printItems]
         return "\t".join(printItems)
+    
+class RNASupportData(object):
+    
+    def __init__(self, score, supportingReads, totalDepth, pvalue = None):
+        self.score = score
+        self.supportingReads = supportingReads
+        self.totalDepth = totalDepth
+        self.pvalue = pvalue
+    
+    def __str__(self):
+        printItems = [self.score, self.supportingReads, self.totalDepth, self.pvalue]
+        printItems = [str(item) for item in printItems]
+        return "\t".join(printItems)
