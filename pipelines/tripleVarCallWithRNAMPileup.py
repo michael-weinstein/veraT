@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import rootPathSetter
+
 class CheckArgs(object):
     
     def __init__(self):
@@ -141,14 +143,14 @@ def main():
     #GATK Haplotype Caller Everything
     haplotypeCallerNormalJob = workFlows.HaplotypeCaller(jobList, normalSampleName, args.refGenomeFasta, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = rnaProcessJobs.clobber, outputDir = outputDir, lastJob = normalProcessJobs, mock = args.mock).returnData
     haplotypeCallerTumorJob = workFlows.HaplotypeCaller(jobList, tumorSampleName, args.refGenomeFasta, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = haplotypeCallerNormalJob.clobber, outputDir = outputDir, lastJob = tumorProcessJobs, mock = args.mock).returnData
-    haplotypeCallerRNAJob = workFlows.HaplotypeCaller(jobList, tumorSampleName + "RNA", args.refGenomeFasta, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = haplotypeCallerTumorJob.clobber, outputDir = outputDir, lastJob = rnaProcessJobs, mock = args.mock).returnData
+    #haplotypeCallerRNAJob = workFlows.HaplotypeCaller(jobList, tumorSampleName + "RNA", args.refGenomeFasta, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = haplotypeCallerTumorJob.clobber, outputDir = outputDir, lastJob = rnaProcessJobs, mock = args.mock).returnData
     
-    #GATK Full joint genotyping and vqsr on DNA data and joint genotyping alone on RNA data
-    jointGenotypeAndVQSRDNA = workFlows.JointGenotypeAndVQSR(jobList, tumorSampleName, args.refGenomeFasta, args.jointGenotypingGVCFDirectory, args.snpVQSRResources, args.indelVQSRResources, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = haplotypeCallerRNAJob.clobber, outputDir = outputDir, lastJob = [haplotypeCallerNormalJob, haplotypeCallerTumorJob], mock = args.mock).returnData
-    jointGenotypeRNA = workFlows.JointGenotype(jobList, tumorSampleName + "RNA", args.refGenomeFasta, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, standCallConf = 10, clobber = jointGenotypeAndVQSRDNA.clobber, outputDir = outputDir, lastJob = [haplotypeCallerTumorJob, haplotypeCallerRNAJob], mock = args.mock).returnData
+    #GATK Full joint genotyping on DNA data
+    jointGenotypeAndVQSRDNA = workFlows.JointGenotypeAndVQSR(jobList, tumorSampleName, args.refGenomeFasta, args.jointGenotypingGVCFDirectory, args.snpVQSRResources, args.indelVQSRResources, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = haplotypeCallerTumorJob.clobber, outputDir = outputDir, lastJob = [haplotypeCallerNormalJob, haplotypeCallerTumorJob], mock = args.mock).returnData
+    #jointGenotypeRNA = workFlows.JointGenotype(jobList, tumorSampleName + "RNA", args.refGenomeFasta, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, standCallConf = 10, clobber = jointGenotypeAndVQSRDNA.clobber, outputDir = outputDir, lastJob = [haplotypeCallerTumorJob, haplotypeCallerRNAJob], mock = args.mock).returnData
     
     #Get somatics from GATK
-    vcfReaderJob = workFlows.VCFReader(jobList, normalSampleName, tumorSampleName, emailAddress = args.email, clobber = jointGenotypeRNA.clobber, outputDir = outputDir, lastJob = jointGenotypeAndVQSRDNA, mock = args.mock).returnData
+    vcfReaderJob = workFlows.VCFReader(jobList, normalSampleName, tumorSampleName, emailAddress = args.email, clobber = jointGenotypeAndVQSRDNA.clobber, outputDir = outputDir, lastJob = jointGenotypeAndVQSRDNA, mock = args.mock).returnData
     
     #Mutect1
     mutect1SomaticsJob = workFlows.Mutect1ToSomaticsData(jobList, tumorSampleName, args.refGenomeFasta, intervals = args.intervals, dbSNP = args.dbSNP, emailAddress = args.email, clobber = vcfReaderJob.clobber, outputDir = outputDir, lastNormalJob = normalProcessJobs, lastTumorJob = tumorProcessJobs, minDepth = 10, mock = args.mock).returnData
@@ -160,10 +162,11 @@ def main():
     combineSomaticVariantsJob = workFlows.CombineVarScanHaplotypeCallerMutectSomatics(jobList, tumorSampleName, emailAddress = args.email, clobber = varScanSomaticsJob["indel"].clobber, outputDir = outputDir, varScanCombinedSomaticsJob = varScanSomaticsJob, haplotypeCallerSomaticsJob = vcfReaderJob, mutect1SomaticsJob = mutect1SomaticsJob, mock = args.mock).returnData
     
     #AddRNASupport
-    addRNASupportData = workFlows.getRNASupport(jobList, tumorSampleName, tumorSampleName + "RNA", emailAddress = args.email, clobber = combineSomaticVariantsJob.clobber, outputDir = outputDir, combineSomaticsJob = combineSomaticVariantsJob, rnaVariantCallJob = jointGenotypeRNA, mock = args.mock)
+    mPileupRNA = workFlows.MPileup(jobList, tumorSampleName + "RNA", refGenomeFasta = args.refGenomeFasta, gzip = True, emailAddress = args.email, clobber = combineSomaticVariantsJob.clobber, outputDir = outputDir, makeBAMJob = rnaProcessJobs, mock = args.mock).returnData
+    addRNASupportData = workFlows.getRNASupportMPileup(jobList, tumorSampleName + "RNA", emailAddress = args.email, clobber = mPileupRNA.clobber, outputDir = outputDir, combineSomaticsJob = combineSomaticVariantsJob, rnaMPileupJob = mPileupRNA, mock = args.mock)
   
     #Capstone to mark completion
-    capstoneDependencies = [combineSomaticVariantsJob.jobID]
+    capstoneDependencies = [addRNASupportData.jobID]
     capstoneJobID = workFlows.Capstone(jobList, tumorSampleName, capstoneDependencies, args.email, outputDir, args.mock)
     
     #ending the pipeline

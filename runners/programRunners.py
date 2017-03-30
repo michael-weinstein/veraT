@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
 
 import os
+runnerRoot = os.sep.join(__file__.split(os.sep)[:-2]) + os.sep
 global programPaths
-programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
-                "java" : os.getcwd() + "/bin/jre1.8.0_77/bin/java",
+programPaths = {"bwa" : runnerRoot + "/bin/bwa-0.7.15/bwa",
+                "java" : runnerRoot + "/bin/jre1.8.0_77/bin/java",
                 "samtools" : "/u/local/apps/samtools/1.2/gcc-4.4.7/bin/samtools",
-                "extractVariants" : os.getcwd() + "/analysisScripts/extractVariants.py",
-                "combineVariants" : os.getcwd() + "/analysisScripts/combineExtractedVariants.py",
+                "extractVariants" : runnerRoot + "/analysisScripts/extractVariants.py",
+                "combineVariants" : runnerRoot + "/analysisScripts/combineExtractedVariants.py",
                 "python3" : "/u/local/apps/python/3.4.3/bin/python3",                
-                "bgzip" : os.getcwd() + "/bin/tabix/tabix-0.2.6/bgzip",
-                "tabix" : os.getcwd() + "/bin/tabix/tabix-0.2.6/tabix",
-                "varscan" : os.getcwd() + "/bin/VarScan.v2.4.0.jar",
-                "bam-readcount" : os.getcwd() + "/bin/bamReadCount/bin/bam-readcount",
-                "vcfReader" : os.getcwd() + "/runners/variantReaders/vcfReader.py",
-                "mutectReader" : os.getcwd() + "/runners/variantReaders/mutectReader.py",
-                "varScanPositions" : os.getcwd() + "/runners/variantReaders/varScanPositionPuller.py",
-                "varScanReader" : os.getcwd() + "/runners/variantReaders/varScanReader.py",
+                "bgzip" : runnerRoot + "/bin/tabix/tabix-0.2.6/bgzip",
+                "tabix" : runnerRoot + "/bin/tabix/tabix-0.2.6/tabix",
+                "varscan" : runnerRoot + "/bin/VarScan.v2.4.0.jar",
+                "bam-readcount" : runnerRoot + "/bin/bamReadCount/bin/bam-readcount",
+                "vcfReader" : runnerRoot + "/runners/variantReaders/vcfReader.py",
+                "mutectReader" : runnerRoot + "/runners/variantReaders/mutectReader.py",
+                "varScanPositions" : runnerRoot + "/runners/variantReaders/varScanPositionPuller.py",
+                "varScanReader" : runnerRoot + "/runners/variantReaders/varScanReader.py",
                 "perl" : "/usr/bin/perl",
-                "varScanFPFilter" : os.getcwd() + "/runners/variantReaders/fpfilter.pl",
-                "variantCombine" : os.getcwd() + "/runners/variantReaders/variantCombine.py",
-                "getRNASupport" : os.getcwd() + "/runners/variantReaders/getRNASupport.py",
-                "hisat2" : os.getcwd() + "/bin/hisat2/hisat2"}
+                "varScanFPFilter" : runnerRoot + "/runners/variantReaders/fpfilter.pl",
+                "variantCombine" : runnerRoot + "/runners/variantReaders/variantCombine.py",
+                "getRNASupportVCF" : runnerRoot + "/runners/variantReaders/getRNASupportVCF.py",
+                "getRNASupportMPileup" : runnerRoot + "/runners/variantReaders/getRNASupportMPileup.py",
+                "hisat2" : runnerRoot + "/bin/hisat2/hisat2"}
 
 class BWAlign(object):
     
@@ -215,10 +217,13 @@ class BWAmem(object):
 
 class MPileup(object):
     
-    def __init__(self, sampleName, bamFile, refGenomeFasta, disablePerBaseAlignmentQuality = False, minBaseQuality = False, maxDepth = False, countOrphans = False, bgzip = False, clobber = False, outputDirectory = ""):
+    def __init__(self, sampleName, bamFile, refGenomeFasta, disablePerBaseAlignmentQuality = False, minBaseQuality = False, maxDepth = False, countOrphans = False, gzip = False, bgzip = False, clobber = False, outputDirectory = ""):
         import runnerSupport
         self.sampleName = sampleName
         self.bgzip = bgzip
+        self.gzip = gzip
+        if bgzip and gzip:
+            raise RuntimeError("Both bgzip and gzip cannot be set to true.")
         if not outputDirectory:
             self.outputDirectory = ""
         else:
@@ -258,6 +263,8 @@ class MPileup(object):
         self.mPileupOut = self.outputDirectory + self.sampleName + ".mpileup"
         if self.bgzip:
             self.mPileupOut += ".bgz"
+        elif self.gzip:
+            self.mPileupOut += ".gz"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.mPileupOut, self.sampleName, self.clobber)
         
     def createSamtoolsCommand(self):
@@ -268,7 +275,9 @@ class MPileup(object):
                       "-A" : self.countOrphans,
                       "-f" : self.refGenomeFasta}
         if self.bgzip:
-            outputTee = ">" + programPaths["bgzip"] + "-c > " + self.mPileupOut
+            outputTee = " | " + programPaths["bgzip"] + " -c > " + self.mPileupOut
+        elif self.gzip:
+            outputTee = " | " + " gzip " + " -c > " + self.mPileupOut
         else:
             outputTee = ">" + self.mPileupOut
         samtoolsArgs = [programPaths["samtools"], "mpileup", flagValues, self.bamFile, outputTee]
@@ -946,13 +955,13 @@ class Hisat2Align(object):
         hisat2Command = argumentFormatter.argumentString
         return hisat2Command
     
-class GetRNASupport(object):
+class GetRNASupportVCF(object):
     
     def __init__(self, sampleName, rnaSampleName, somaticVariantPickle, rnaVariantVCF, minDifference = 10, clobber = False, outputDirectory = ""):
         import runnerSupport
         self.somaticVariantPickle = somaticVariantPickle
         self.rnaVariantVCF = rnaVariantVCF
-        self.minDifference = 10
+        self.minDifference = minDifference
         self.clobber = clobber
         self.sampleName = sampleName
         self.rnaSampleName = rnaSampleName
@@ -975,7 +984,7 @@ class GetRNASupport(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.rnaSupportOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".rnaSupport.txt"
+        self.rnaSupportOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".VCFRNASupport.txt"
         self.clobber = runnerSupport.checkForOverwriteRisk(self.rnaSupportOut, self.sampleName, self.clobber)
 
     def createRNASupportCommand(self):
@@ -985,7 +994,49 @@ class GetRNASupport(object):
                       "-r" : self.rnaSampleName,
                       "-m" : self.minDifference,
                       "-o" : self.rnaSupportOut}
-        args = [programPaths["python3"], programPaths["getRNASupport"], flagValues]
+        args = [programPaths["python3"], programPaths["getRNASupportVCF"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        getRNASupportCommand = argumentFormatter.argumentString
+        return getRNASupportCommand
+    
+class GetRNASupportMPileup(object):
+    
+    def __init__(self, sampleName, somaticVariantPickle, rnaMPileup, minDifference = 10, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.somaticVariantPickle = somaticVariantPickle
+        self.rnaMPileup = rnaMPileup
+        self.minDifference = minDifference
+        self.clobber = clobber
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(somaticVariantPickle, "Pickle of filtered somatic variants")
+        runnerSupport.checkForRequiredFile(rnaMPileup, "MPileup of observed RNA variants")
+        runnerSupport.checkTypes(minDifference, (bool, int))
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.getRNASupportCommand = self.createRNASupportCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.rnaSupportOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".mPileupRNASupport.txt"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.rnaSupportOut, self.sampleName, self.clobber)
+
+    def createRNASupportCommand(self):
+        import runnerSupport
+        flagValues = {"-f" : self.rnaMPileup,
+                      "-s" : self.somaticVariantPickle,
+                      "-m" : self.minDifference,
+                      "-o" : self.rnaSupportOut}
+        args = [programPaths["python3"], programPaths["getRNASupportMPileup"], flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(args)
         getRNASupportCommand = argumentFormatter.argumentString
         return getRNASupportCommand

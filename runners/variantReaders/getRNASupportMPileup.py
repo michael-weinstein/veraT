@@ -6,54 +6,66 @@ class CheckArgs():  #class that checks arguments and ultimately returns a valida
         import argparse
         import os
         parser = argparse.ArgumentParser()
-        parser.add_argument("-v", "--vcf", help = "RNA Variant call file path", required = True)
+        parser.add_argument("-f", "--mpileupFile", help = "RNA mPileup", required = True)
         parser.add_argument("-s", "--somaticVariants", help = "Pickle containing somatic variant analysis from DNA", required = True)
-        parser.add_argument("-r", "--rna", help = "Tumor RNA variant column name", required = True)
         parser.add_argument("-o", "--output", help = "Output pickle file name")
         parser.add_argument("-m", "--minDiff", help = "Minimum percent difference in expression vs. DNA mutant/wild-type ratios to consider worth scoring", default = 10, type = int)
         rawArgs = parser.parse_args()
-        vcf = rawArgs.vcf
-        if not os.path.isfile(vcf):
-            raise FileNotFoundError("Unable to find file %s" %vcf)
-        self.vcf = vcf
+        mpileupFile = rawArgs.mpileupFile
+        if not os.path.isfile(mpileupFile):
+            raise FileNotFoundError("Unable to find file %s" %mpileupFile)
+        self.mpileupFile = mpileupFile
         somaticVariants = rawArgs.somaticVariants
         if not os.path.isfile(somaticVariants):
             raise FileNotFoundError("Unable to find file %s" %somaticVariants)
         self.somaticVariants = somaticVariants
-        self.rna = rawArgs.rna
         output = rawArgs.output
         if not output:
-            output = self.vcf + ".rnaSupport.pkl"
+            output = self.mpileupFile + ".rnaSupport.pkl"
         self.output = output
         self.minDiff = rawArgs.minDiff
 
-def checkVCFForRNASupport(vcfPath, somaticVariants, somaticVariantTable, rnaSampleName, minDiff):
-    import vcfReader
+def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable,  minDiff):
     import variantDataHandler
     import scipy.stats
-    vcf = open(vcfPath, 'r')
+    import re
+    nonBaseRegex = re.compile("[^ATGC]", re.IGNORECASE)  #compiling this regex now so it only needs to be compiled once
+    plusBaseRegex = re.compile("\+\d+[ATGC]+", re.IGNORECASE)
+    if mpileupFile.endswith(".gz"):
+        import gzip
+        mpileup = gzip.open(mpileupFile, 'rt')
+    else:
+        mpileup = open(mpileupFile, 'r')
     supportData = {}
-    for line in vcf:
+    lociOfInterest = [(item[0], str(item[1])) for item in somaticVariants]  #using a string of the position to improve performance, will convert hundreds of times now instead of converting millions of times during mpileup reading
+    for line in mpileup:
         line = line.strip()
         if not line:
             continue
-        elif line.startswith("##"):
-            continue
         elif line.startswith("#"):
-            header = vcfReader.VCFColumnHeader(line)
             continue
         else:
-            if not header:
-                raise RuntimeError("Hit what appears to be a line of data before finding a valid column header line. Line:\n%s" %line)
-            data = vcfReader.VCFDataLine(line, header, somaticVariants)
-            if not data.inHashList:
+            try:
+                contig, position, ref, depth, reads, quality = line.split()
+            except ValueError:  #when lines with no reads are included, we get 4 columns (reads and qualities are missing)
                 continue
-            for foundHash in data.inHashList:
-                if not data.lineArray[header[rnaSampleName]].called:
+            locus = (contig, position)
+            if not locus in lociOfInterest:
+                continue  #if we read past this, we know we are looking at a locus with a somatic change
+            position = int(position)
+            totalDepthRNA = int(depth)
+            reads = reads.upper().replace(".", ref).replace(",", ref)
+            reads = re.sub(plusBaseRegex, "", reads)  #get rid of any plus (digit)(base) reads here, otherwise the base will remain as an alt
+            reads = re.sub(nonBaseRegex, "", reads)  #get rid of anything not a base (we have already replaced the periods and commas)
+            foundHashesAtSite = []
+            for variant in somaticVariants:
+                if contig == variant[0] and position == variant[1]:
+                    foundHashesAtSite.append(variant)
+            for foundHash in foundHashesAtSite:
+                if not (len(foundHash[2]) == 1 and len(foundHash[3]) == 1): #indel catcher
                     continue
                 altAllele = foundHash[3]
-                totalDepthRNA = data.lineArray[header[rnaSampleName]].depth
-                supportingDepthRNA = data.lineArray[header[rnaSampleName]].alleleDepthTable[altAllele]
+                supportingDepthRNA = reads.count(altAllele)
                 totalDepthDNA = somaticVariantTable[foundHash]["combined"].tumorDepth
                 supportingDepthDNA = somaticVariantTable[foundHash]["combined"].tumorSupporting
                 expressionDNARatio = (supportingDepthRNA/totalDepthRNA) / (supportingDepthDNA/totalDepthDNA)
@@ -73,11 +85,11 @@ def checkVCFForRNASupport(vcfPath, somaticVariants, somaticVariantTable, rnaSamp
                     supportData[foundHash] = variantDataHandler.RNASupportData(5, supportingDepthRNA, totalDepthRNA, pvalue)
                 else:
                     supportData[foundHash] = variantDataHandler.RNASupportData(3, supportingDepthRNA, totalDepthRNA, pvalue)
+    mpileup.close()
     return supportData
                
 def createOutputTextTable(sortedAcceptedVariantInfoTuples, variantDicts):
     sources = sorted(list(variantDicts[sortedAcceptedVariantInfoTuples[0]].keys()))
-    sources = []
     sources.remove("hits")
     sources.remove("combined")
     sources.remove("RNASupport")
@@ -89,9 +101,8 @@ def createOutputTextTable(sortedAcceptedVariantInfoTuples, variantDicts):
         countData = []
         hits = variantDicts[variant]["hits"]
         for source in sources:
-            if variant in variantDicts[source]:
-                countData.append(variantDicts[source][variant].readCountString)
-                hits += 1
+            if source in variantDicts[variant] and variantDicts[variant][source]:
+                countData.append(variantDicts[variant][source].readCountString)
             else:
                 countData.append("NA")
         countData.append(str(variantDicts[variant]["RNASupport"]))
@@ -117,7 +128,7 @@ def main():
     somaticVariants = list(somaticVariantTable.keys())
     for key in somaticVariants:
         somaticVariantTable[key]["RNASupport"] = variantDataHandler.RNASupportData(0, 0, 0)
-    rnaSupportTable = checkVCFForRNASupport(args.vcf, somaticVariants, somaticVariantTable, args.rna, args.minDiff)
+    rnaSupportTable = checkMPileupForRNASupport(args.mpileupFile, somaticVariants, somaticVariantTable, args.minDiff)
     for key in list(rnaSupportTable.keys()):
         somaticVariantTable[key]["RNASupport"] = rnaSupportTable[key]
     sortVariantDataTuples(somaticVariants)
@@ -126,7 +137,7 @@ def main():
         pickle.dump(somaticVariantTable, outputFile)
         outputFile.close()
     else:
-        outputTable = createOutputTextTable(somaticVariantTable, somaticVariants)
+        outputTable = createOutputTextTable(somaticVariants, somaticVariantTable)
         outputFile = open(args.output, 'w')
         for line in outputTable:
             print("\t".join(line), file = outputFile)

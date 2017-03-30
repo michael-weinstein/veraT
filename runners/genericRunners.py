@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
 global genericRunnerPaths
+runnerRoot = os.sep.join(__file__.split(os.sep)[:-2]) + os.sep
 genericRunnerPaths = {"python3" : "/u/local/apps/python/3.4.3/bin/python3",  #hoffman
                       #"python3" : "/Library/Frameworks/Python.framework/Versions/3.4/bin/python3"  #local for debugging
                       "qsub" : "/u/systems/UGE8.0.1vm/bin/lx-amd64/qsub",
-                      "arrayWrapper" : "./arrayWrapper.py"}
+                      "arrayWrapper" : runnerRoot + "/runners/arrayWrapper.py"}
 
 class HoffmanJob(object):
     

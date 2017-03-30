@@ -91,4 +91,4 @@ class RNASupportData(object):
     def __str__(self):
         printItems = [self.score, self.supportingReads, self.totalDepth, self.pvalue]
         printItems = [str(item) for item in printItems]
-        return "\t".join(printItems)
+        return ",".join(printItems)

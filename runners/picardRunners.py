@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 
 import os
+runnerRoot = os.sep.join(__file__.split(os.sep)[:-2]) + os.sep
 global programPaths
-programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
-                "java" : os.getcwd() + "/bin/jre1.8.0_77/bin/java",
+programPaths = {"bwa" : runnerRoot + "/bin/bwa-0.7.15/bwa",
+                "java" : runnerRoot + "/bin/jre1.8.0_77/bin/java",
                 "samtools" : "/u/local/apps/samtools/1.2/gcc-4.4.7/bin/samtools",
-                "extractVariants" : os.getcwd() + "/analysisScripts/extractVariants.py",
-                "combineVariants" : os.getcwd() + "/analysisScripts/combineExtractedVariants.py",
+                "extractVariants" : runnerRoot + "/analysisScripts/extractVariants.py",
+                "combineVariants" : runnerRoot + "/analysisScripts/combineExtractedVariants.py",
                 "python3" : "/u/local/apps/python/3.4.3/bin/python3",                
-                "bgzip" : os.getcwd() + "/bin/tabix/tabix-0.2.6/bgzip",
-                "tabix" : os.getcwd() + "/bin/tabix/tabix-0.2.6/tabix",
-                "varscan" : os.getcwd() + "/bin/VarScan.v2.4.0.jar",
-                "bam-readcount" : os.getcwd() + "bin/bam-readcount/bin/bam-readcount"}
+                "bgzip" : runnerRoot + "/bin/tabix/tabix-0.2.6/bgzip",
+                "tabix" : runnerRoot + "/bin/tabix/tabix-0.2.6/tabix",
+                "varscan" : runnerRoot + "/bin/VarScan.v2.4.0.jar",
+                "bam-readcount" : runnerRoot + "bin/bam-readcount/bin/bam-readcount"}
 global picardPath
-picardPath = os.getcwd() + "/bin/picard-tools-2.1.1/picard.jar"
+picardPath = runnerRoot + "/bin/picard-tools-2.1.1/picard.jar"
 
 class sortSAMtoBAM(object):
     

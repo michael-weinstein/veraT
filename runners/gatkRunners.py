@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 
 import os
+runnerRoot = os.sep.join(__file__.split(os.sep)[:-2]) + os.sep
 global programPaths
-programPaths = {"bwa" : os.getcwd() + "/bin/bwa-0.7.15/bwa",
-                "java" : os.getcwd() + "/bin/jre1.8.0_77/bin/java",
-                "java7" : os.getcwd() + "/bin/jdk1.7.0_79/bin/java",
+programPaths = {"bwa" : runnerRoot + "/bin/bwa-0.7.15/bwa",
+                "java" : runnerRoot + "/bin/jre1.8.0_77/bin/java",
+                "java7" : runnerRoot + "/bin/jdk1.7.0_79/bin/java",
                 "samtools" : "/u/local/apps/samtools/1.2/gcc-4.4.7/bin/samtools",
-                "extractVariants" : os.getcwd() + "/analysisScripts/extractVariants.py",
-                "combineVariants" : os.getcwd() + "/analysisScripts/combineExtractedVariants.py",
+                "extractVariants" : runnerRoot + "/analysisScripts/extractVariants.py",
+                "combineVariants" : runnerRoot + "/analysisScripts/combineExtractedVariants.py",
                 "python3" : "/u/local/apps/python/3.4.3/bin/python3",                
-                "bgzip" : os.getcwd() + "/bin/tabix/tabix-0.2.6/bgzip",
-                "tabix" : os.getcwd() + "/bin/tabix/tabix-0.2.6/tabix",
-                "varscan" : os.getcwd() + "/bin/VarScan.v2.4.0.jar",
-                "bam-readcount" : os.getcwd() + "bin/bam-readcount/bin/bam-readcount"}
+                "bgzip" : runnerRoot + "/bin/tabix/tabix-0.2.6/bgzip",
+                "tabix" : runnerRoot + "/bin/tabix/tabix-0.2.6/tabix",
+                "varscan" : runnerRoot + "/bin/VarScan.v2.4.0.jar",
+                "bam-readcount" : runnerRoot + "/bin/bam-readcount/bin/bam-readcount"}
 global gatkPath
-gatkPath = os.getcwd() + "/bin/GenomeAnalysisTK.jar"
-mutectPath = os.getcwd() + "/bin/muTect-1.1.7/muTect-1.1.7.jar"
+gatkPath = runnerRoot + "/bin/GenomeAnalysisTK.jar"
+gatkQueuePath = runnerRoot + "/bin/gatkQueue/Queue.jar"
+mutectPath = runnerRoot + "/bin/muTect-1.1.7/muTect-1.1.7.jar"
 
 class IndelRealignment(object):
     
@@ -277,10 +279,125 @@ class HaplotypeCaller(object):
                       "-pairHMM" : self.pairHiddenMarkovModel,
                       "flaggedlist" : ["--annotation", self.annotation],
                       "--allow_potentially_misencoded_quality_scores" : self.allowPotentiallyMisencodedQualityScores,
-                      "-dontUseSoftClippedBases" : self.dontUseSoftClippedBases}
+                      "--dontUseSoftClippedBases" : self.dontUseSoftClippedBases}
         gatkArgs = [programPaths["java"], "-Xmx1g", "-jar", gatkPath, flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         haplotypeCallerCommand = argumentFormatter.argumentString
+        return (haplotypeCallerCommand)
+    
+class HaplotypeCallerQueue(object):
+    
+    def __init__(self, sampleName, bamIn, refGenomeFasta, bedFile = False, emitRefConfidence = "GVCF", standCallConf = False, variantIndexType = "LINEAR", variantIndexParameter = 128000, dbSNP = False, annotation = ["Coverage", "AlleleBalance"], intervalPadding = 100, pairHiddenMarkovModel = "VECTOR_LOGLESS_CACHING", allowPotentiallyMisencodedQualityScores = True, dontUseSoftClippedBases = False, clobber = False, cores =5, scatterMemory = 8, outputDirectory = ""):
+        import runnerSupport
+        self.clobber = clobber
+        self.cores = max([cores, 5])  #using cores to keep compatibility with the old version that used nct.  No reason to use less than 5 cores here.
+        self.scatterMemory = scatterMemory
+        self.bedFile = bedFile
+        self.dontUseSoftClippedBases = dontUseSoftClippedBases
+        self.standCallConf = standCallConf
+        self.sampleName = sampleName
+        self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
+        self.refGenomeFasta = refGenomeFasta
+        if emitRefConfidence == "GVCF":
+            self.emitRefConfidence = "ReferenceConfidenceMode.GVCF"
+        else:
+            self.emitRefConfidence = emitRefConfidence
+        self.variantIndexType = variantIndexType
+        self.variantIndexParameter = variantIndexParameter
+        self.dbSNP = dbSNP
+        self.annotation = annotation
+        if not type(self.annotation) == list:
+            self.annotation = [self.annotation]
+        self.annotation = ['"' + item + '"' for item in annotation]
+        self.intervalPadding = intervalPadding
+        self.pairHiddenMarkovModel = pairHiddenMarkovModel
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        if not type(bamIn) == list:
+            bamIn = [bamIn]
+        self.bamIn = bamIn
+        #SANITY TEST ALL THE THINGS
+        for file in self.bamIn:
+            runnerSupport.checkForRequiredFile(file, "BAM file for haplotype calling")
+        if self.dbSNP:
+            runnerSupport.checkForRequiredFile(self.dbSNP, "dbSNP file")
+        if self.bedFile:
+            runnerSupport.checkForRequiredFile(self.bedFile, "BED file containing target intervals")
+        if not type(self.standCallConf) == int and not self.standCallConf == False:
+            raise RuntimeError("Invalid standRefConfidence value passed to haplotypeCaller %s" %self.standCallConf)
+        if not type(self.emitRefConfidence) == int and not self.emitRefConfidence == "ReferenceConfidenceMode.GVCF" and not self.emitRefConfidence == False:
+            raise RuntimeError("Invalid emitRefConfidence value passed to haplotype caller: %s" %(self.emitRefConfidence))
+        if not type(self.variantIndexParameter):
+            raise RuntimeError("Variant Index Parameter value was not an integer.")
+        if not type(self.intervalPadding) == int:
+            raise RuntimeError("Interval padding value for haplotype caller must be an integer.")
+        self.checkRefGenome()
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.makeScalaFile()
+        self.haplotypeCallerCommand = self.createGATKCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import os
+        import runnerSupport
+        if self.emitRefConfidence == "ReferenceConfidenceMode.GVCF":
+            self.gvcfOut = self.outputDirectory + self.sampleName + ".gvcf"
+            self.outputFileName = self.gvcfOut
+        else:
+            self.vcfOut = self.outputDirectory + self.sampleName + ".vcf"
+            self.outputFileName = self.vcfOut
+        self.scalaFile = self.outputDirectory + self.sampleName + ".haplotypeCaller.scatter.scala"  #not checking for overwrite risk here, since this is a job metafile and not actual data
+        self.workingDirectory = self.outputDirectory + self.sampleName + "hcScatterGather"
+        os.mkdir(self.workingDirectory)
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.outputFileName, self.sampleName, self.clobber)
+        
+    def checkRefGenome(self):
+        import os
+        import runnerSupport
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta, "reference genome file")
+        runnerSupport.checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index", "Please move the index to this location or use samtools faidx to create one.")
+        runnerSupport.checkForRequiredFile(".".join(self.refGenomeFasta.split(".")[:-1]) + ".dict", "reference genome dictionary", "Please move the index to this location or use picard create sequence dictionary to create one.")
+
+    def makeScalaFile(self):
+        import os
+        gatkTool = "HaplotypeCaller"
+        commandLineArgs =  {"analysis_type" : gatkTool,
+                            "input_file" : self.bamIn,
+                            "out" : self.outputFileName,
+                            "emitRefConfidence" : self.emitRefConfidence,
+                            "reference_sequence" : self.refGenomeFasta,
+                            "variant_index_parameter" : self.variantIndexParameter,
+                            #"bamOutput" : self.sampleName + ".activeRegions.bam",
+                            "intervals" : [self.bedFile],
+                            "dbsnp" : self.dbSNP,
+                            "interval_padding" : self.intervalPadding,
+                            "dontUseSoftClippedBases" : self.dontUseSoftClippedBases,
+                            "allow_potentially_misencoded_quality_scores" : self.allowPotentiallyMisencodedQualityScores
+                           }
+        if self.annotation:
+            commandLineArgs["annotation"] = "Seq(%s)" %(", ".join(self.annotation))
+        if self.standCallConf:
+            commandLineArgs["standard_min_confidence_threshold_for_calling"] = self.standCallConf
+        if self.pairHiddenMarkovModel:
+            commandLineArgs["pairHMM"] = "HMM_IMPLEMENTATION.%s" %self.pairHiddenMarkovModel
+        if self.variantIndexType:
+            commandLineArgs["variant_index_type"] = "GATKVCFIndexType.%s" %self.variantIndexType
+        shortName = "hc"
+        scalaFile = createScala(shortName, commandLineArgs, self.cores, 1, self.scalaFile)
+
+    def createGATKCommand(self):
+        import runnerSupport
+        gatkArgs = [programPaths["java"], "-Xmx4g", "-Djava.io.tempdir=%s" %(self.outputDirectory + ".tmp"), "-jar", gatkQueuePath, "-S %s" %self.scalaFile, "-startFromScratch", "-qsub", '-jobResReq "h_data=%sG,h_rt=24:00:00" -run' %self.scatterMemory]
+        argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
+        haplotypeCallerCommand = argumentFormatter.argumentString
+        haplotypeCallerCommand = "cd %s; " %self.workingDirectory + haplotypeCallerCommand
         return (haplotypeCallerCommand)
     
 class DepthOfCoverage(object):
@@ -683,3 +800,78 @@ class SplitNCigarReads(object):
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         cleanUpCommand = argumentFormatter.argumentString
         return cleanUpCommand
+    
+def createScala(shortName, commandLineArgs, count, memory, scalaFileName):
+    import os
+    def checkType(value):
+        if type(value) == bool:
+            return "boolean"
+        if type(value) == int:
+            return "int"
+        if type(value) == float:
+            return "float"
+        if type(value) == list or type(value) == tuple:
+            return "filelist"
+            #return checkType(value[0]) + "list"
+        import os
+        if "." in value and os.path.isfile(value):
+            print("I think %s is a file" %value)
+            return "file"
+        try:
+            value = int(value)
+            return "int"
+        except ValueError:
+            try:
+                value = float(value)
+                return "float"
+            except ValueError:
+                return "string"
+    scala =  "import org.broadinstitute.gatk.queue.QScript\n"
+    scala += "import org.broadinstitute.gatk.queue.extensions.gatk._\n"
+    scala += "import org.broadinstitute.gatk.queue.extensions.picard._\n"
+    scala += "import org.broadinstitute.gatk.queue.util.QScriptUtils\n"
+    scala += "import org.broadinstitute.gatk.tools.walkers.haplotypecaller.ReferenceConfidenceMode\n"
+    scala += "import org.broadinstitute.gatk.utils.variant.GATKVCFIndexType\n"
+    scala += "import org.broadinstitute.gatk.utils.pairhmm.PairHMM.HMM_IMPLEMENTATION\n"
+    scala += "class scatterGather extends QScript {\n"
+    scala += " def script() {\n"
+    scala += "  val " + shortName + " = new " + commandLineArgs["analysis_type"] + "\n"
+    for key in list(commandLineArgs.keys()):
+        if key == "analysis_type":
+            continue
+        valueType = checkType(commandLineArgs[key])
+        if valueType.endswith("list"):
+            value = "Seq("
+            if valueType.replace("list","") == "file":
+                files = []
+                for fileName in commandLineArgs[key]:
+                    if fileName:
+                        files.append('new File("' + fileName + '")')
+                value += ", ".join(files) + ")"
+        elif valueType in ["float", "int"]:
+            if valueType == "float":
+                value = float(commandLineArgs[key])
+            elif valueType == "int":
+                value = int(commandLineArgs[key])
+        elif valueType == "string":
+            value = commandLineArgs[key]
+        elif valueType == "boolean":
+                if commandLineArgs[key]:
+                    value = "true"
+                else:
+                    value = "false"
+        elif valueType == "file":
+            value = 'new File("' + commandLineArgs[key] + '")'
+        else:
+            raise RuntimeError("Got an unexpected value type while making scala file: " + valueType)
+        scala += "  " + shortName + "." + key + " = " + str(value) + "\n"
+    scala += "  " + shortName + ".scatterCount = " + str(count) + "\n"
+    scala += "  " + shortName + ".memoryLimit = " + str(memory) + "\n"
+    scala += "  add(" + shortName + ")\n"
+    scala += " }\n"
+    scala += "}\n"
+    print("Writing " + commandLineArgs["analysis_type"] + " scala file.")
+    scalaFile = open(scalaFileName, 'w')
+    scalaFile.write(scala)
+    scalaFile.close()
+    return scalaFileName

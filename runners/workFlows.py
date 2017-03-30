@@ -284,7 +284,7 @@ class HaplotypeCallerAndVQSR(object):
         self.emailAddress = emailAddress
         self.tempDir = jobList.tempDir
         self.sampleName = sampleName
-        haplotypeCaller = gatkRunners.HaplotypeCaller(sampleName, bamFile, refGenomeFasta, intervals, dbSNP = dbSNP, cores = 3, clobber = clobber, outputDirectory = outputDir)
+        haplotypeCaller = gatkRunners.HaplotypeCallerQueue(sampleName, bamFile, refGenomeFasta, intervals, dbSNP = dbSNP, cores = 3, clobber = clobber, outputDirectory = outputDir)
         self.haplotypeCallerCommandIndex = jobList.addJob(haplotypeCaller.haplotypeCallerCommand)
         jointGenotype = gatkRunners.JointGenotype(sampleName, haplotypeCaller.gvcfOut, jointGenotypingFrozenGVCFDirectory, refGenomeFasta, dbSNP, clobber = haplotypeCaller.clobber, outputDirectory = outputDir)
         self.jointGenotypeCommandIndex = jobList.addJob(jointGenotype.jointGenotypeCommand)
@@ -329,7 +329,7 @@ class HaplotypeCaller(object):
         self.emailAddress = emailAddress
         self.tempDir = jobList.tempDir
         self.sampleName = sampleName
-        haplotypeCaller = gatkRunners.HaplotypeCaller(sampleName, bamFile, refGenomeFasta, intervals, dbSNP = dbSNP, cores = 3, clobber = clobber, outputDirectory = outputDir)
+        haplotypeCaller = gatkRunners.HaplotypeCallerQueue(sampleName, bamFile, refGenomeFasta, intervals, dbSNP = dbSNP, cores = 3, clobber = clobber, outputDirectory = outputDir)
         self.haplotypeCallerCommandIndex = jobList.addJob(haplotypeCaller.haplotypeCallerCommand)
         haplotypeCallerJobID = self.submitCommands(mock)
         self.returnData = runnerSupport.WorkflowReturn(haplotypeCaller.gvcfOut, haplotypeCallerJobID, haplotypeCaller.clobber)
@@ -649,7 +649,7 @@ class HaplotypeCallerRNAAnalysis(object):
         self.emailAddress = emailAddress
         self.tempDir = jobList.tempDir
         self.sampleName = sampleName
-        tumorRNAExomeHaplotypeCall = gatkRunners.HaplotypeCaller(self.sampleName, [tumorBAM, rnaBAM], refGenomeFasta, bedFile = intervals, emitRefConfidence = False, standCallConf = 20, variantIndexType = False, variantIndexParameter = False, dbSNP = dbSNP, intervalPadding = 100, allowPotentiallyMisencodedQualityScores = True, cores = 3, clobber = clobber, outputDirectory = outputDir)
+        tumorRNAExomeHaplotypeCall = gatkRunners.HaplotypeCallerQueue(self.sampleName, [tumorBAM, rnaBAM], refGenomeFasta, bedFile = intervals, emitRefConfidence = False, standCallConf = 20, variantIndexType = False, variantIndexParameter = False, dbSNP = dbSNP, intervalPadding = 100, allowPotentiallyMisencodedQualityScores = True, cores = 3, clobber = clobber, outputDirectory = outputDir)
         self.haplotypeCallerCommandIndex = jobList.addJob(tumorRNAExomeHaplotypeCall.haplotypeCallerCommand)
         haplotypeCallerJobID = self.submitCommands(mock)
         self.returnData = runnerSupport.WorkflowReturn(tumorRNAExomeHaplotypeCall.vcfOut, haplotypeCallerJobID, tumorRNAExomeHaplotypeCall.clobber)
@@ -843,7 +843,40 @@ class CombineVarScanHaplotypeCallerMutectSomatics(object):
         variantCombine = genericRunners.HoffmanJob([self.varScanIndelSomaticsJob.jobID, self.varScanSNPSomaticsJob.jobID, self.haplotypeCallerSomaticsJob.jobID, self.mutect1SomaticsJob.jobID], self.variantCombineCommandIndex, self.sampleName + "Combine", tempDir, self.emailAddress, "a", 1, mock = mock)
         return variantCombine.jobID
     
-class getRNASupport(object):
+class MPileup(object):
+    def __init__(self, jobList, sampleName, bamFile = False, refGenomeFasta = False, gzip = False, bgzip = False, emailAddress = False, clobber = None, outputDir = "", makeBAMJob = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        if not (makeBAMJob or bamFile):
+            raise RuntimeError("No BAM file passed through job info or the explicit argument.  Nothing to work on.")
+        if bamFile:
+            self.bamFile = bamFile
+        else:
+            self.bamFile = makeBAMJob.data
+        if not makeBAMJob:
+            self.makeBAMJob = runnerSupport.EmptyWorkflowReturn()
+        else:
+            self.makeBAMJob = makeBAMJob
+        if makeBAMJob.clobber:
+            clobber = makeBAMJob.clobber
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        mPileup = programRunners.MPileup(sampleName, self.bamFile, refGenomeFasta, gzip = gzip, bgzip = bgzip, clobber = clobber, outputDirectory = outputDir)
+        self.mPileupCommandIndex = jobList.addJob(mPileup.mPileupCommand)
+        mPileupJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(mPileup.mPileupOut, mPileupJobID, mPileup.clobber)
+        
+    def submitCommands(self, mock):
+        import genericRunners
+        tempDir = self.tempDir
+        mPileup = genericRunners.HoffmanJob([self.makeBAMJob.jobID], self.mPileupCommandIndex, self.sampleName + "mPileup", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return mPileup.jobID
+    
+    
+class getRNASupportVCF(object):
     
     def __init__(self, jobList, sampleName, rnaSampleName, somaticVariantPickle = False, rnaVariantVCF = False, minDifference = 10, emailAddress = False, clobber = None, outputDir = "", combineSomaticsJob = False, rnaVariantCallJob = False, mock = False):
         import houseKeeping
@@ -879,15 +912,62 @@ class getRNASupport(object):
         self.emailAddress = emailAddress
         self.tempDir = jobList.tempDir
         self.sampleName = sampleName
-        getRNASupport = programRunners.GetRNASupport(sampleName, rnaSampleName, self.somaticVariantPickle, self.rnaVariantVCF, minDifference, clobber = clobber, outputDirectory = outputDir)
-        self.getRNASupportCommand = jobList.addJob(getRNASupport.getRNASupportCommand)
+        getRNASupportVCF = programRunners.GetRNASupportVCF(sampleName, rnaSampleName, self.somaticVariantPickle, self.rnaVariantVCF, minDifference, clobber = clobber, outputDirectory = outputDir)
+        self.getRNASupportCommandIndex = jobList.addJob(getRNASupportVCF.getRNASupportCommand)
         getRNASupportJobID = self.submitCommands(mock)
-        self.returnData = runnerSupport.WorkflowReturn(getRNASupport.rnaSupportOut, getRNASupportJobID, getRNASupport.clobber)
+        self.returnData = runnerSupport.WorkflowReturn(getRNASupportVCF.rnaSupportOut, getRNASupportJobID, getRNASupportVCF.clobber)
         
     def submitCommands(self, mock):
         import genericRunners
         tempDir = self.tempDir
-        getRNASupport = genericRunners.HoffmanJob([self.rnaVariantCallJob.jobID, self.combineSomaticsJob.jobID], self.getRNASupportCommand, self.sampleName + "AddRNA", tempDir, self.emailAddress, "a", 1, mock = mock)
+        getRNASupport = genericRunners.HoffmanJob([self.rnaVariantCallJob.jobID, self.combineSomaticsJob.jobID], self.getRNASupportCommandIndex, self.sampleName + "AddRNA", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return getRNASupport.jobID
+    
+class getRNASupportMPileup(object):
+    
+    def __init__(self, jobList, sampleName, somaticVariantPickle = False, rnaMPileup = False, minDifference = 10, emailAddress = False, clobber = None, outputDir = "", combineSomaticsJob = False, rnaMPileupJob = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        self.minDifference = minDifference
+        if not (somaticVariantPickle or combineSomaticsJob):
+            raise RuntimeError("No combined somatics job data or combined somatics file passed.")
+        if not (rnaMPileupJob or rnaMPileup):
+            raise RuntimeError("No RNA variant call job data or RNA variant call VCF passed.")
+        if rnaMPileup:
+            self.rnaMPileup = rnaMPileup
+        else:
+            self.rnaMPileup = rnaMPileupJob.data
+        if somaticVariantPickle:
+            self.somaticVariantPickle = somaticVariantPickle
+        else:
+            self.somaticVariantPickle = combineSomaticsJob.data
+        if not combineSomaticsJob:
+            combineSomaticsJob = runnerSupport.EmptyWorkflowReturn()
+        if not rnaMPileupJob:
+            rnaMPileupJob = runnerSupport.EmptyWorkflowReturn()
+        self.combineSomaticsJob = combineSomaticsJob
+        self.rnaMPileupJob = rnaMPileupJob
+        clobberSet = set([clobber] + [item.clobber for item in [combineSomaticsJob, rnaMPileupJob]])
+        if True in clobberSet:
+            clobber = True
+        elif False  in clobberSet:
+            clobber = False
+        elif None in clobberSet:
+            clobber = None
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        getRNASupportMPileup = programRunners.GetRNASupportMPileup(sampleName, self.somaticVariantPickle, self.rnaMPileup, minDifference = minDifference, clobber = clobber, outputDirectory = outputDir)
+        self.getRNASupportCommandIndex = jobList.addJob(getRNASupportMPileup.getRNASupportCommand)
+        getRNASupportJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(getRNASupportMPileup.rnaSupportOut, getRNASupportJobID, getRNASupportMPileup.clobber)
+        
+    def submitCommands(self, mock):
+        import genericRunners
+        tempDir = self.tempDir
+        getRNASupport = genericRunners.HoffmanJob([self.rnaMPileupJob.jobID, self.combineSomaticsJob.jobID], self.getRNASupportCommandIndex, self.sampleName + "AddRNA", tempDir, self.emailAddress, "a", 1, mock = mock)
         return getRNASupport.jobID
     
 class Capstone(object):
