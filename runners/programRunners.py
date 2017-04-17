@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os
-runnerRoot = os.sep.join(__file__.split(os.sep)[:-2]) + os.sep
+runnerRoot = os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]) + os.sep
 global programPaths
 programPaths = {"bwa" : runnerRoot + "/bin/bwa-0.7.15/bwa",
                 "java" : runnerRoot + "/bin/jre1.8.0_77/bin/java",
@@ -22,7 +22,11 @@ programPaths = {"bwa" : runnerRoot + "/bin/bwa-0.7.15/bwa",
                 "variantCombine" : runnerRoot + "/runners/variantReaders/variantCombine.py",
                 "getRNASupportVCF" : runnerRoot + "/runners/variantReaders/getRNASupportVCF.py",
                 "getRNASupportMPileup" : runnerRoot + "/runners/variantReaders/getRNASupportMPileup.py",
-                "hisat2" : runnerRoot + "/bin/hisat2/hisat2"}
+                "hisat2" : runnerRoot + "/bin/hisat2/hisat2",
+                "tandemVariantCombine" : runnerRoot + "/runners/variantReaders/tandemVariantCombine.py",
+                "athlates" : runnerRoot + "/bin/Athlates_2014_04_26/bin/typing",
+                "athlatesDB" : runnerRoot + "/references/athlatesDB/",
+                "sickle" : runnerRoot + "/bin/sickle/sickle"}
 
 class BWAlign(object):
     
@@ -40,6 +44,8 @@ class BWAlign(object):
                 self.outputDirectory = outputDirectory
         self.sampleName = sampleName
         self.pe1 = pairedEnd1File
+        if not pairedEnd2File:
+            pairedEnd2File = ""
         self.pe2 = pairedEnd2File
         self.cores = cores
         self.threads = cores
@@ -120,10 +126,8 @@ class BWAlign(object):
     def makeSAMCommand(self):
         import runnerSupport
         if self.pairedEnd:
-            flagValues = {"-P" : True}  #This is valid and will load everything into memory
-                          # "-T" : True,  #Can't find this as a valid argument.  Copied from Catie's email.  Remove if this causes trouble.     It did.
-                          # "-t" : self.threads}  #Copied from email as above.  Remove if it causes trouble.  I don't think sampe or samse can multithread operations.  If they can't, consider removing this, as it will slow our resource allocation times.
-            bwaArgs = [programPaths["bwa"], "sampe", flagValues, self.refGenomeFasta, self.pe1Out, self.pe2Out, self.pe1, self.pe2, ">", self.samOut]
+            flagValues = {}
+            bwaArgs = [programPaths["bwa"], "sampe", self.refGenomeFasta, self.pe1Out, self.pe2Out, self.pe1, self.pe2, ">", self.samOut]
             argumentFormatter = runnerSupport.ArgumentFormatter(bwaArgs)
             bwaCommand = argumentFormatter.argumentString
             return bwaCommand
@@ -459,11 +463,14 @@ class Tabix(object):
     
 class ViewSAMtoBAM(object):
     
-    def __init__(self, sampleName, samFile, refGenomeFasta, samInput = True, bamOutput = True, includeHeaders = True, clobber = False, outputDirectory = ""):
+    def __init__(self, sampleName, samFile, refGenomeFasta, samInput = True, bamOutput = True, includeHeaders = True, bedFileFilter = False, flagFilterOut = False, flagFilterRequire = False, clobber = False, outputDirectory = ""):
         import runnerSupport
         self.samInput = samInput
         self.bamOutput = bamOutput
+        self.flagFilterOut = flagFilterOut
+        self.flagFilterRequire = flagFilterRequire
         self.includeHeaders = includeHeaders
+        self.bedFileFilter = bedFileFilter
         self.sampleName = sampleName
         if not outputDirectory:
             self.outputDirectory = ""
@@ -478,6 +485,14 @@ class ViewSAMtoBAM(object):
         self.refGenomeFasta = refGenomeFasta
         self.clobber = clobber
         #SANITY CHECKING
+        if self.flagFilterOut:
+            runnerSupport.checkTypes(self.flagFilterOut, int)
+            if not round(self.flagFilterOut**0.5) == self.flagFilterOut**0.5:
+                raise RuntimeError("Flag filter must be a valid flag value, and valid flag values are all powers of 2.  Value given: %s" %self.flagFilterOut)
+        if self.flagFilterRequire:
+            runnerSupport.checkTypes(self.flagFilterRequire, int)
+            if not round(self.flagFilterRequire**0.5) == self.flagFilterRequire**0.5:
+                raise RuntimeError("Flag filter must be a valid flag value, and valid flag values are all powers of 2.  Value given: %s" %self.flagFilterRequire)
         runnerSupport.checkTypes([self.samInput, self.bamOutput, self.includeHeaders], bool)
         if not type(self.samFile) == str:
             raise RuntimeError("BAM file name should be string. Passed %s" %(self.samFile))
@@ -486,13 +501,20 @@ class ViewSAMtoBAM(object):
             raise RuntimeError("Reference genome fasta file name should be a string. Passed %s" %(self.refGenomeFasta))
         runnerSupport.checkForRequiredFile(self.refGenomeFasta, "reference genome fasta")
         runnerSupport.checkForRequiredFile(self.refGenomeFasta + ".fai", "reference genome fasta index file", "Please move the index file to this location or create one using samtools faidx.")
+        if self.bedFileFilter:
+            runnerSupport.checkForRequiredFile(self.bedFileFilter, "BED file for output filtering")
         #Done sanity checking
         self.makeAndCheckOutputFileNames()
         self.viewCommand = self.createSamtoolsCommand()
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.bamOut = self.outputDirectory + self.sampleName + ".bam"
+        if not self.bamOutput:
+            extension = ".sam"
+        else:
+            extension = ".bam"
+        self.bamOut = self.outputDirectory + self.sampleName + extension
+        self.samOut = self.bamOut
         self.clobber = runnerSupport.checkForOverwriteRisk(self.bamOut, self.sampleName, self.clobber)
         
     def createSamtoolsCommand(self):
@@ -501,7 +523,10 @@ class ViewSAMtoBAM(object):
                       "-b" : self.bamOutput,
                       "-h" : self.includeHeaders,
                       "-T" : self.refGenomeFasta,
-                      "-o" : self.bamOut}
+                      "-L" : self.bedFileFilter,
+                      "-o" : self.bamOut,
+                      "-f" : self.flagFilterRequire,
+                      "-F" : self.flagFilterOut}
         samtoolsArgs = [programPaths["samtools"], "view", flagValues, self.samFile]
         argumentFormatter = runnerSupport.ArgumentFormatter(samtoolsArgs)
         samtoolsCommand = argumentFormatter.argumentString
@@ -851,7 +876,7 @@ class VarScanFPFilter(object):
     
 class VariantCombine(object):
     
-    def __init__(self, sampleName, variantDataList, minHits = False, maxHits = False, clobber = False, outputDirectory = ""):
+    def __init__(self, sampleName, variantDataList, minHits = False, maxHits = False, outputFormat = "pickle", clobber = False, outputDirectory = ""):
         import runnerSupport
         if type(variantDataList) == str:
             variantDataList = [variantDataList]
@@ -859,6 +884,7 @@ class VariantCombine(object):
         self.minHits = minHits
         self.maxHits = maxHits
         self.clobber = clobber
+        self.outputFormat = outputFormat
         self.sampleName = sampleName
         if not outputDirectory:
             self.outputDirectory = ""
@@ -879,7 +905,12 @@ class VariantCombine(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.acceptedSomaticVariants = self.outputDirectory + self.sampleName + ".acceptedSomatics.txt"
+        if self.outputFormat == "text":
+            self.acceptedSomaticVariants = self.outputDirectory + self.sampleName + ".acceptedSomatics.txt"
+        elif self.outputFormat == "pickle":
+            self.acceptedSomaticVariants = self.outputDirectory + self.sampleName + ".acceptedSomatics.pkl"
+        else:
+            raise RuntimeError("Variant combine output format must be either 'pickle' or 'text'")
         self.clobber = runnerSupport.checkForOverwriteRisk(self.acceptedSomaticVariants, self.sampleName, self.clobber)
 
     def createCombineCommand(self):
@@ -1001,12 +1032,13 @@ class GetRNASupportVCF(object):
     
 class GetRNASupportMPileup(object):
     
-    def __init__(self, sampleName, somaticVariantPickle, rnaMPileup, minDifference = 10, clobber = False, outputDirectory = ""):
+    def __init__(self, sampleName, somaticVariantPickle, rnaMPileup, minDifference = 10, outputFormat = "pickle", clobber = False, outputDirectory = ""):
         import runnerSupport
         self.somaticVariantPickle = somaticVariantPickle
         self.rnaMPileup = rnaMPileup
         self.minDifference = minDifference
         self.clobber = clobber
+        self.outputFormat = outputFormat
         self.sampleName = sampleName
         if not outputDirectory:
             self.outputDirectory = ""
@@ -1027,7 +1059,12 @@ class GetRNASupportMPileup(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.rnaSupportOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".mPileupRNASupport.txt"
+        if self.outputFormat == "text":
+            self.rnaSupportOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".mPileupRNASupport.txt"
+        elif self.outputFormat == "pickle":
+            self.rnaSupportOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".mPileupRNASupport.pkl"
+        else:
+            raise RuntimeError("Variant combine output format must be either 'pickle' or 'text'")
         self.clobber = runnerSupport.checkForOverwriteRisk(self.rnaSupportOut, self.sampleName, self.clobber)
 
     def createRNASupportCommand(self):
@@ -1040,3 +1077,203 @@ class GetRNASupportMPileup(object):
         argumentFormatter = runnerSupport.ArgumentFormatter(args)
         getRNASupportCommand = argumentFormatter.argumentString
         return getRNASupportCommand
+    
+class TandemVariantCombine(object):
+    
+    def __init__(self, sampleName, combinedVariantPickle, outputFormat = "pickle", maxFusionLength = 0, maxDifferencePercent = 10, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.combinedVariantPickle = combinedVariantPickle
+        self.clobber = clobber
+        self.outputFormat = outputFormat
+        self.sampleName = sampleName
+        self.maxFusionLength = maxFusionLength
+        self.maxDifferencePercent= maxDifferencePercent
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(combinedVariantPickle, "Pickle of filtered somatic variants")
+        runnerSupport.checkTypes([self.maxDifferencePercent, self.maxFusionLength], (bool, int))
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.fusionCommand = self.createFusionCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        if self.outputFormat == "text":
+            self.fusionOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.combinedVariantPickle) + ".fused.txt"
+        elif self.outputFormat == "pickle":
+            self.fusionOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.combinedVariantPickle) + ".fused.pkl"
+        else:
+            raise RuntimeError("Variant combine output format must be either 'pickle' or 'text'")
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.fusionOut, self.sampleName, self.clobber)
+
+    def createFusionCommand(self):
+        import runnerSupport
+        flagValues = {"-o" : self.fusionOut,
+                      "-f" : self.combinedVariantPickle,
+                      "-m" : self.maxFusionLength,
+                      "-p" : self.maxDifferencePercent}
+        args = [programPaths["python3"], programPaths["tandemVariantCombine"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        getFusionCommand = argumentFormatter.argumentString
+        return getFusionCommand
+    
+class LinuxSort(object):
+    
+    def __init__(self, sampleName, inputFile, outputFile, keyList, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.clobber = clobber
+        self.sampleName = sampleName
+        self.inputFile = inputFile
+        self.outputFile = runnerSupport.stripDirectory(outputFile)
+        self.keyList = keyList
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY CHECKING
+        runnerSupport.checkTypes([self.keyList], list)
+        runnerSupport.checkForRequiredFile(self.inputFile, "File to sort")
+        #Done sanity checking
+        self.makeAndCheckOutputFileNames()
+        self.sortCommand = self.createSortCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        import os
+        if not self.outputDirectory.endswith(os.sep):
+            self.outputDirectory += os.sep
+        self.outputFile = self.outputDirectory + self.outputFile
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.outputFile, self.sampleName, self.clobber)
+        
+    def createSortCommand(self):
+        import runnerSupport
+        flagValues = {"flaggedlist" : ["-k", self.keyList]}
+        sortArgs = ["sort", flagValues, self.inputFile, ">", self.outputFile]
+        argumentFormatter = runnerSupport.ArgumentFormatter(sortArgs)
+        sortCommand = argumentFormatter.argumentString
+        return sortCommand
+    
+class Athlates(object):
+    
+    def __init__(self, sampleName, onTargetBAM, offTargetBAM, msaFile, hlaMolecule, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        import os
+        self.clobber = clobber
+        self.sampleName = sampleName
+        self.onTargetBAM = onTargetBAM
+        self.offTargetBAM = offTargetBAM
+        self.hlaSequence = msaFile
+        self.hlaMolecule = hlaMolecule.upper()
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY CHECKING
+        runnerSupport.checkForRequiredFile(self.onTargetBAM, "HLA-targeted BAM file")
+        runnerSupport.checkForRequiredFile(self.offTargetBAM, "Non-HLA-targetd BAM file")
+        runnerSupport.checkForRequiredFile(self.hlaSequence, "HLA sequence file")
+        #Done sanity checking
+        self.makeAndCheckOutputFileNames()
+        self.athlatesCommand = self.createAthlatesCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.hlaCallOut = self.outputDirectory + self.sampleName + ".%s.hlaCalls" %self.hlaMolecule
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.hlaCallOut, self.sampleName, self.clobber)
+        
+    def createAthlatesCommand(self):
+        import runnerSupport
+        flagValues = {"-bam" : self.onTargetBAM,
+                      "-exlbam" : self.offTargetBAM,
+                      "-msa" : self.hlaSequence,
+                      "-o" : self.hlaCallOut}
+        hlaArgs = [programPaths["athlates"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(hlaArgs)
+        hlaCommand = argumentFormatter.argumentString
+        return hlaCommand
+    
+class Sickle(object):
+    
+    def __init__(self, sampleName, forwardFastqIn, reverseFastqIn = False, qualityScoreFormat = "sanger", minWindowQualityAverage = 20, minLengthAfterTrimming = 20, gzippedOutput = True, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        import os
+        self.clobber = clobber
+        self.sampleName = sampleName
+        self.gzippedOut = gzippedOutput
+        self.forwardFastqIn = forwardFastqIn
+        self.reverseFastqIn = reverseFastqIn
+        self.pairedEndMode = forwardFastqIn and reverseFastqIn
+        self.qualityScoreFormat = qualityScoreFormat
+        self.minWindowQualityAverage = minWindowQualityAverage
+        self.minLengthAfterTrimming = minLengthAfterTrimming
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY CHECKING
+        runnerSupport.checkTypes([self.minLengthAfterTrimming, self.minWindowQualityAverage], int)
+        runnerSupport.checkForRequiredFile(self.forwardFastqIn, "Input forward fastq")
+        if self.pairedEndMode:
+            runnerSupport.checkForRequiredFile(self.reverseFastqIn, "Input reverse fastq")
+        if not qualityScoreFormat in ["illumina", "solexa", "sanger"]:
+            raise RuntimeError("Invalid quality score format passed: %s" %qualityScoreFormat)
+        #Done sanity checking
+        self.makeAndCheckOutputFileNames()
+        self.sickleCommand = self.createSickleCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        if self.gzippedOut:
+            extension = ".sickleTrim.fastq.gz"
+        else:
+            extension = ".sickleTrim.fastq"
+        self.forwardFastqOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.forwardFastqIn) + ".pe1" + extension
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.forwardFastqOut, self.sampleName, self.clobber)
+        if self.pairedEndMode:
+            self.reverseFastqOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.reverseFastqIn) + ".pe2" + extension
+            self.clobber = runnerSupport.checkForOverwriteRisk(self.reverseFastqOut, self.sampleName, self.clobber)
+            self.singletonFastqOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.forwardFastqIn) + ".singletons" + extension
+            self.clobber = runnerSupport.checkForOverwriteRisk(self.singletonFastqOut, self.sampleName, self.clobber)
+        
+    def createSickleCommand(self):
+        import runnerSupport
+        if self.pairedEndMode:
+            mode = "pe"
+        else:
+            mode = "se"
+        flagValues = {"-f" : self.forwardFastqIn,
+                      "-r" : self.reverseFastqIn,
+                      "-t" : self.qualityScoreFormat,
+                      "-o" : self.forwardFastqOut,
+                      "-p" : self.reverseFastqOut,
+                      "-s" : self.singletonFastqOut,
+                      "-l" : self.minLengthAfterTrimming,
+                      "-q" : self.minWindowQualityAverage,
+                      "-g" : self.gzippedOut}
+        sickleArgs = [programPaths["sickle"], mode, flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(sickleArgs)
+        sickleCommand = argumentFormatter.argumentString
+        return sickleCommand

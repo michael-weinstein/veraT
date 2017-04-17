@@ -15,6 +15,7 @@ class VariantData(object):
         else:
             self.supportingPercent = 0
         self.hashValue = (self.contig, self.position, self.ref, self.alt)
+        self.fusedSNV = False
     
     def __hash__(self):
         return hash(self.hashValue)
@@ -50,6 +51,7 @@ class SomaticVariantData(object):
             self.tumorSupportingPercent = 0
         self.pvalue = None
         self.hashValue = (self.contig, self.position, self.ref, self.alt)
+        self.fusedSNV = False
 
     def fisherTest(self):
         if self.pvalue:
@@ -80,15 +82,56 @@ class SomaticVariantData(object):
         printItems = [str(item) for item in printItems]
         return "\t".join(printItems)
     
+    def oncotatorInputLine(self, delimiter = "\t"):
+        endPosition = self.position + len(self.ref) - 1
+        lineItems = [self.contig, self.position, endPosition, self.ref, self.alt, self.tumorDepth, self.tumorSupporting, self.tumorSupportingPercent, self.normalDepth]
+        lineItems = [str(item) for item in lineItems]
+        return delimiter.join(lineItems)
+    
 class RNASupportData(object):
     
-    def __init__(self, score, supportingReads, totalDepth, pvalue = None):
+    def __init__(self, score, supportingReads, totalDepth, pvalue = None, oddsRatio = None):
         self.score = score
         self.supportingReads = supportingReads
         self.totalDepth = totalDepth
         self.pvalue = pvalue
+        self.oddsRatio = oddsRatio
     
     def __str__(self):
         printItems = [self.score, self.supportingReads, self.totalDepth, self.pvalue]
         printItems = [str(item) for item in printItems]
         return ",".join(printItems)
+
+class ProteinChange(object):
+    
+    def __init__(self, gene, enst, changeTupleList):
+        self.gene = gene
+        self.enst = enst
+        self.changes = changeTupleList
+        self.polypeptideChange = len(changeTupleList) > 1
+
+def sortVariantDataTuples(variantDataTupleList):
+    if not type(variantDataTupleList) == list:
+        raise RuntimeError("Variant data tuple list must be passed as a list type.")
+    import operator
+    def contigSortValue(rawContig, highestNumber = 99):
+        import re
+        digits = len(str(highestNumber))
+        contig = re.sub("chr", "", rawContig.strip(), flags=re.IGNORECASE)
+        sortOrder = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y,M,MT".split(",")
+        sortingTable = {}
+        for index, contigName in enumerate(sortOrder):
+            sortingTable[contigName] = str(index)
+        if not contig in sortingTable:
+            return rawContig
+        else:
+            returnValue = sortingTable[contig]
+            if returnValue.isdigit():
+                return returnValue.zfill(digits)
+            else:
+                return returnValue
+    def contigSortValueFromSomaticTuple(somaticTuple, highestNumber = 99):
+        return contigSortValue(somaticTuple[0], highestNumber)
+    #goal is to have variants sorted first by contig in the standard order, then by position within the contig.  This will be done by first sorting on position and then on contig using a function that specifies the order.
+    variantDataTupleList.sort(key = operator.itemgetter(1))  #sort first on position
+    variantDataTupleList.sort(key = contigSortValueFromSomaticTuple)

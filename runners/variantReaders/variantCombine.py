@@ -107,12 +107,12 @@ def dictionaryHitFilter(dictionaryList, minimumHits = None, maximumHits = None):
         accepted.append(key)
     return accepted
 
-def sortVariantDataTuples(variantDataTupleList):
-    import operator
-    import variantSupport
-    #goal is to have variants sorted first by contig in the standard order, then by position within the contig.  This will be done by first sorting on position and then on contig using a function that specifies the order.
-    variantDataTupleList.sort(key = operator.itemgetter(1))
-    variantDataTupleList.sort(key = variantSupport.contigSortValueFromSomaticTuple)
+# def sortVariantDataTuples(variantDataTupleList):
+#     import operator
+#     import variantSupport
+#     #goal is to have variants sorted first by contig in the standard order, then by position within the contig.  This will be done by first sorting on position and then on contig using a function that specifies the order.
+#     variantDataTupleList.sort(key = operator.itemgetter(1))
+#     variantDataTupleList.sort(key = variantSupport.contigSortValueFromSomaticTuple)
     
 def combineIndelAndSNP(indelDict, snpDict, priority = "SNP"):
     if priority.upper() == "SNP":
@@ -205,6 +205,7 @@ def createOutputPickleTable(sortedAcceptedVariantInfoTuples, variantDicts):
 
 def main():
     import pickle
+    import variantDataHandler
     args = CheckArgs()
     variantFileDict = sortVariantFiles(args.variantFiles)
     variantDicts = {}
@@ -224,7 +225,7 @@ def main():
         else:
             raise RuntimeError("Got a source with inappropriate variant types %s\nDict: %s" %(source, variantFileDict[source]))
     filteredVariants = dictionaryHitFilter(variantDicts, args.minHits, args.maxHits)
-    sortVariantDataTuples(filteredVariants)
+    variantDataHandler.sortVariantDataTuples(filteredVariants)
     if args.output.upper().endswith(".PKL"):
         outputTable = createOutputPickleTable(filteredVariants, variantDicts)
         outputFile = open(args.output, 'wb')

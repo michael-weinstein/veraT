@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
+import os
 global genericRunnerPaths
-runnerRoot = os.sep.join(__file__.split(os.sep)[:-2]) + os.sep
+runnerRoot = os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]) + os.sep
 genericRunnerPaths = {"python3" : "/u/local/apps/python/3.4.3/bin/python3",  #hoffman
                       #"python3" : "/Library/Frameworks/Python.framework/Versions/3.4/bin/python3"  #local for debugging
                       "qsub" : "/u/systems/UGE8.0.1vm/bin/lx-amd64/qsub",
@@ -83,7 +84,7 @@ class HoffmanJob(object):
         if self.dependencies:
             dependencies = [str(dependency) for dependency in self.dependencies]
             holdArg = ["-hold_jid", ",".join(dependencies)]
-        startingArgs = [genericRunnerPaths["qsub"], "-cwd"]
+        startingArgs = [genericRunnerPaths["qsub"], "-V", "-cwd"]
         schedulerCommandList = startingArgs + jobNameArg + limitsArgs + peArg + outputsArg + jobRangeArg + emailArg + holdArg
         commandToExecute = [genericRunnerPaths["python3"], genericRunnerPaths["arrayWrapper"], "-d", self.tempDir]
         commandToExecuteString = " ".join(commandToExecute)
@@ -115,10 +116,3 @@ class HoffmanJob(object):
                 else:
                     print("Submission to qsub failed. Retrying.\nQSUB OUT: %s\n QSUB ERR: %s" %(qsubOut, qsubError))
                     retries += 1
-        
-
-        
-    
-        
-    
-    

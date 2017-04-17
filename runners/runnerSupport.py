@@ -17,12 +17,9 @@ def yesAnswer(question):  #asks the question passed in and returns True if the a
 
 def stripDirectoryAndExtension(fileName):
     import os
-    pathSplit = fileName.split(os.sep)
-    fileName = pathSplit[-1]
-    splitName = fileName.split(".")
-    splitNameNoExtension = splitName[:-1]
-    nameNoExtension = ".".join(splitNameNoExtension)
-    return nameNoExtension
+    fileName = stripDirectory(fileName)
+    fileName = stripExtension(fileName)
+    return fileName
 
 def baseFileName(fileName):
     import os
@@ -32,8 +29,13 @@ def directory(fileName):
     import os
     return os.sep.join(fileName.split(os.sep)[:-1])
 
-def stripExtension(fileName):
-    return ".".join(fileName.split(".")[:-1])
+def stripExtension(fileName, zipDoubleExtension = True):
+    zipExtensions = ["gz", "bz", "zip"]
+    fileName = fileName.split(".")
+    if len(fileName) < 3 or not fileName[-1] in zipExtensions or not zipDoubleExtension:
+        return ".".join(fileName[:-1])
+    else:
+        return ".".join(fileName[:-2])
 
 def stripDirectory(fileName):
     import os
@@ -95,6 +97,14 @@ def checkForRequiredFile(fileName, fileDescription, instructions = ""):
             if not instructions.startswith(" "):
                 instructions = " " + instructions
         raise FileNotFoundError("Unable to find %s.%s Expected file: %s" %(fileDescription, instructions, fileName))
+    
+def checkForRequiredDirectory(directoryName, directoryDescription, instructions = ""):
+    import os
+    if not os.path.isdir(directoryDescription):
+        if instructions:
+            if not instructions.startswith(" "):
+                instructions = " " + instructions
+        raise FileNotFoundError("Unable to find %s.%s Expected file: %s" %(directoryDescription, instructions, directoryName))
     
 def checkTypes(values, requiredTypes):
     if not type(values) == list:
@@ -231,6 +241,9 @@ class EmptyWorkflowReturn(WorkflowReturn):
         checkTypes(self.data, [str, list])
         checkTypes(self.clobber, [bool, type(None)])
         checkTypes(self.jobID, [int, list])
+        
+    def __bool__(self):
+        return False
         
 class JobList(object):
     

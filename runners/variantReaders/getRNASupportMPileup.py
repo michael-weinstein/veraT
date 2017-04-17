@@ -10,6 +10,7 @@ class CheckArgs():  #class that checks arguments and ultimately returns a valida
         parser.add_argument("-s", "--somaticVariants", help = "Pickle containing somatic variant analysis from DNA", required = True)
         parser.add_argument("-o", "--output", help = "Output pickle file name")
         parser.add_argument("-m", "--minDiff", help = "Minimum percent difference in expression vs. DNA mutant/wild-type ratios to consider worth scoring", default = 10, type = int)
+        parser.add_argument("-v", "--verbose", help = "Verbose output mode", action = 'store_true')
         rawArgs = parser.parse_args()
         mpileupFile = rawArgs.mpileupFile
         if not os.path.isfile(mpileupFile):
@@ -24,8 +25,9 @@ class CheckArgs():  #class that checks arguments and ultimately returns a valida
             output = self.mpileupFile + ".rnaSupport.pkl"
         self.output = output
         self.minDiff = rawArgs.minDiff
+        self.verbose = rawArgs.verbose
 
-def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable,  minDiff):
+def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable,  minDiff, verbose = False):
     import variantDataHandler
     import scipy.stats
     import re
@@ -38,7 +40,12 @@ def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable,
         mpileup = open(mpileupFile, 'r')
     supportData = {}
     lociOfInterest = [(item[0], str(item[1])) for item in somaticVariants]  #using a string of the position to improve performance, will convert hundreds of times now instead of converting millions of times during mpileup reading
+    progress = 0
     for line in mpileup:
+        if verbose:
+            if progress % 10000 == 0:
+                print("Processed %s lines" %progress, end = "\r")
+            progress += 1
         line = line.strip()
         if not line:
             continue
@@ -80,11 +87,13 @@ def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable,
                     continue
                 oddsRatio, pvalue = scipy.stats.fisher_exact([[supportingDepthRNA, totalDepthRNA], [supportingDepthDNA, totalDepthDNA]])
                 if pvalue > 0.05:
-                    supportData[foundHash] = variantDataHandler.RNASupportData(4, supportingDepthRNA, totalDepthRNA, pvalue)
+                    supportData[foundHash] = variantDataHandler.RNASupportData(4, supportingDepthRNA, totalDepthRNA, pvalue, oddsRatio)
                 elif expressionDNARatio > 1:
-                    supportData[foundHash] = variantDataHandler.RNASupportData(5, supportingDepthRNA, totalDepthRNA, pvalue)
+                    supportData[foundHash] = variantDataHandler.RNASupportData(5, supportingDepthRNA, totalDepthRNA, pvalue, oddsRatio)
                 else:
-                    supportData[foundHash] = variantDataHandler.RNASupportData(3, supportingDepthRNA, totalDepthRNA, pvalue)
+                    supportData[foundHash] = variantDataHandler.RNASupportData(3, supportingDepthRNA, totalDepthRNA, pvalue, oddsRatio)
+    if verbose:
+        print("Processed %s lines" %progress)
     mpileup.close()
     return supportData
                
@@ -128,7 +137,7 @@ def main():
     somaticVariants = list(somaticVariantTable.keys())
     for key in somaticVariants:
         somaticVariantTable[key]["RNASupport"] = variantDataHandler.RNASupportData(0, 0, 0)
-    rnaSupportTable = checkMPileupForRNASupport(args.mpileupFile, somaticVariants, somaticVariantTable, args.minDiff)
+    rnaSupportTable = checkMPileupForRNASupport(args.mpileupFile, somaticVariants, somaticVariantTable, args.minDiff, args.verbose)
     for key in list(rnaSupportTable.keys()):
         somaticVariantTable[key]["RNASupport"] = rnaSupportTable[key]
     sortVariantDataTuples(somaticVariants)

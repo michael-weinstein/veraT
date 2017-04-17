@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os
-runnerRoot = os.sep.join(__file__.split(os.sep)[:-2]) + os.sep
+runnerRoot = os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]) + os.sep
 global programPaths
 programPaths = {"bwa" : runnerRoot + "/bin/bwa-0.7.15/bwa",
                 "java" : runnerRoot + "/bin/jre1.8.0_77/bin/java",

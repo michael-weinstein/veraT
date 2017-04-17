@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
+import os
 global genericRunnerPaths
 houseKeepingRunnerPaths = {}
+global thisProgramPath
+thisProgramPath = (os.path.abspath(__file__))
 
 class CheckArgs(object):
     
@@ -29,7 +32,7 @@ class Delete(object):  #slightly fancier than a simple rm command, will try to r
     def __init__(self, file):
         if type(file) == list or type(file) == tuple:
             file = ",".join(file)
-        self.deleteCommand = "/u/local/apps/python/3.4.3/bin/python3 runners/houseKeeping.py -m delete -f " + file
+        self.deleteCommand = "/u/local/apps/python/3.4.3/bin/python3 %s -m delete -f %s" %(thisProgramPath, file)
         
 class Move(object):
     
