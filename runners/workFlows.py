@@ -1228,11 +1228,13 @@ class Athlates(object):
         self.hlaFasta = self.athlatesDB + os.sep + "ref" + os.sep + "hla.clean.fasta"
         filterAndConvertOnTarget = programRunners.ViewSAMtoBAM(sampleName + ".on", self.bamIn, self.hlaFasta, samInput = False, bamOutput = False, includeHeaders = True, bedFileFilter = self.bedFileOnTarget, clobber = clobber, outputDirectory = outputDirectory)
         filterAndConvertOffTarget = programRunners.ViewSAMtoBAM(sampleName + ".off", self.bamIn, self.hlaFasta, samInput = False, bamOutput = False, includeHeaders = True, bedFileFilter = self.bedFileOffTarget, clobber = filterAndConvertOnTarget.clobber, outputDirectory = outputDirectory)
-        sortOnTarget = programRunners.LinuxSort(sampleName, filterAndConvertOnTarget.samOut, self.sampleName + ".on.sorted.bam", ["1,1","3,3"], filterAndConvertOffTarget.clobber, outputDirectory)
-        sortOffTarget = programRunners.LinuxSort(sampleName, filterAndConvertOffTarget.samOut, self.sampleName + ".off.sorted.bam", ["1,1","3,3"], sortOnTarget.clobber, outputDirectory)
-        deleteIntermediates = houseKeeping.Delete([filterAndConvertOnTarget.samOut, filterAndConvertOffTarget.samOut])
-        athlates = programRunners.Athlates(self.sampleName, sortOnTarget.outputFile, sortOffTarget.outputFile, self.msa, self.hlaMolecule, sortOffTarget.clobber, outputDirectory)
-        commandList = [filterAndConvertOnTarget.viewCommand, filterAndConvertOffTarget.viewCommand, sortOnTarget.sortCommand, sortOffTarget.sortCommand, deleteIntermediates.deleteCommand, athlates.athlatesCommand]
+        sortOnTarget = programRunners.LinuxSort(sampleName, filterAndConvertOnTarget.samOut, self.sampleName + ".on.sorted.sam", ["1,1","3,3"], filterAndConvertOffTarget.clobber, outputDirectory)
+        sortOffTarget = programRunners.LinuxSort(sampleName, filterAndConvertOffTarget.samOut, self.sampleName + ".off.sorted.sam", ["1,1","3,3"], sortOnTarget.clobber, outputDirectory)
+        compressOnTarget = programRunners.ViewSAMtoBAM(sampleName + ".on.sorted", sortOnTarget.outputFile, self.hlaFasta, samInput = True, bamOutput = True, includeHeaders = True, clobber = sortOffTarget.clobber, outputDirectory = outputDirectory)
+        compressOffTarget = programRunners.ViewSAMtoBAM(sampleName + ".off.sorted", sortOffTarget.outputFile, self.hlaFasta, samInput = True, bamOutput = True, includeHeaders = True, clobber = compressOnTarget.clobber, outputDirectory = outputDirectory)
+        deleteIntermediates = houseKeeping.Delete([filterAndConvertOnTarget.samOut, filterAndConvertOffTarget.samOut, sortOnTarget.outputFile, sortOffTarget.outputFile])
+        athlates = programRunners.Athlates(self.sampleName, compressOnTarget.bamOut, compressOffTarget.bamOut, self.msa, self.hlaMolecule, sortOffTarget.clobber, outputDirectory)
+        commandList = [filterAndConvertOnTarget.viewCommand, filterAndConvertOffTarget.viewCommand, sortOnTarget.sortCommand, sortOffTarget.sortCommand, compressOnTarget.viewCommand, compressOffTarget.viewCommand, deleteIntermediates.deleteCommand, athlates.athlatesCommand]
         commandString = " && ".join(commandList)
         self.commandIndex = jobList.addJob(commandString)
         commandJobID = self.submitCommands(mock)

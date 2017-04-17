@@ -25,7 +25,7 @@ programPaths = {"bwa" : runnerRoot + "/bin/bwa-0.7.15/bwa",
                 "hisat2" : runnerRoot + "/bin/hisat2/hisat2",
                 "tandemVariantCombine" : runnerRoot + "/runners/variantReaders/tandemVariantCombine.py",
                 "athlates" : runnerRoot + "/bin/Athlates_2014_04_26/bin/typing",
-                "athlatesDB" : runnerRoot + "/references/athlatesDB/",
+                "bamtoolsLibDir" : runnerRoot + "/bin/bamtools/lib",
                 "sickle" : runnerRoot + "/bin/sickle/sickle"}
 
 class BWAlign(object):
@@ -134,7 +134,7 @@ class BWAlign(object):
         else:
             # flagValues = {"-T" : True,  #Can't find this as a valid argument.  Copied from Catie's email.  Remove if this causes trouble.
             #               "-t" : self.threads}  #Copied from email as above.  Remove if it causes trouble.  I don't think sampe or samse can multithread operations.  If they can't, consider removing this, as it will slow our resource allocation times.
-            bwaArgs = [programPaths["bwa"], "samse", self.refGenomeFasta, self.pe1, self.pe1Out, ">", self.samOut]
+            bwaArgs = [programPaths["bwa"], "samse", self.refGenomeFasta, self.pe1Out, self.pe1, ">", self.samOut]
             argumentFormatter = runnerSupport.ArgumentFormatter(bwaArgs)
             bwaCommand = argumentFormatter.argumentString
             return bwaCommand
@@ -1201,6 +1201,8 @@ class Athlates(object):
         
     def createAthlatesCommand(self):
         import runnerSupport
+        ldLibCommand = "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:%s" %programPaths["bamtoolsLibDir"]
+        ldLibCommand += " && export LD_LIBRARY_PATH"
         flagValues = {"-bam" : self.onTargetBAM,
                       "-exlbam" : self.offTargetBAM,
                       "-msa" : self.hlaSequence,
@@ -1208,6 +1210,7 @@ class Athlates(object):
         hlaArgs = [programPaths["athlates"], flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(hlaArgs)
         hlaCommand = argumentFormatter.argumentString
+        hlaCommand = ldLibCommand + " && " + hlaCommand
         return hlaCommand
     
 class Sickle(object):
