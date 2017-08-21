@@ -26,7 +26,11 @@ programPaths = {"bwa" : runnerRoot + "/bin/bwa-0.7.15/bwa",
                 "tandemVariantCombine" : runnerRoot + "/runners/variantReaders/tandemVariantCombine.py",
                 "athlates" : runnerRoot + "/bin/Athlates_2014_04_26/bin/typing",
                 "bamtoolsLibDir" : runnerRoot + "/bin/bamtools/lib",
-                "sickle" : runnerRoot + "/bin/sickle/sickle"}
+                "sickle" : runnerRoot + "/bin/sickle/sickle",
+                "getPeptides" : runnerRoot + "/runners/variantReaders/getPolypeptides.py",
+                "hlaReader" : runnerRoot + "/runners/variantReaders/hlaReader.py",
+                "makeOncotatorOutput" : runnerRoot + "/runners/variantReaders/makeOncotatorOutput.py",
+                "oncotatorReader" : runnerRoot + "/runners/variantReaders/oncotatorReader.py",}
 
 class BWAlign(object):
     
@@ -1196,8 +1200,9 @@ class Athlates(object):
         
     def makeAndCheckOutputFileNames(self):
         import runnerSupport
-        self.hlaCallOut = self.outputDirectory + self.sampleName + ".%s.hlaCalls" %self.hlaMolecule
-        self.clobber = runnerSupport.checkForOverwriteRisk(self.hlaCallOut, self.sampleName, self.clobber)
+        self.hlaCallOutBaseName = self.outputDirectory + self.sampleName + ".%s.hlaCalls" %self.hlaMolecule
+        self.hlaTypingOutput = self.hlaCallOutBaseName + ".typing.txt"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.hlaTypingOutput, self.sampleName, self.clobber)
         
     def createAthlatesCommand(self):
         import runnerSupport
@@ -1206,7 +1211,7 @@ class Athlates(object):
         flagValues = {"-bam" : self.onTargetBAM,
                       "-exlbam" : self.offTargetBAM,
                       "-msa" : self.hlaSequence,
-                      "-o" : self.hlaCallOut}
+                      "-o" : self.hlaCallOutBaseName}
         hlaArgs = [programPaths["athlates"], flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(hlaArgs)
         hlaCommand = argumentFormatter.argumentString
@@ -1280,3 +1285,172 @@ class Sickle(object):
         argumentFormatter = runnerSupport.ArgumentFormatter(sickleArgs)
         sickleCommand = argumentFormatter.argumentString
         return sickleCommand
+    
+class GetPeptides(object):
+    
+    def __init__(self, sampleName, somaticVariantPickle, proteinFastaPickle, sizeList = [8, 9, 10], clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.somaticVariantPickle = somaticVariantPickle
+        self.proteinFastaPickle = proteinFastaPickle
+        if type(sizeList) == int:
+            sizeList = [sizeList]
+        self.sizeList = sizeList
+        self.clobber = clobber
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(somaticVariantPickle, "Pickle of fused filtered somatic variants")
+        runnerSupport.checkForRequiredFile(proteinFastaPickle, "Pickle containing tables to convert transcript ID to protein ID to sequence")
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.getPeptidesCommand = self.createGetPeptidesCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.peptideDataOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".peptides.pkl"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.peptideDataOut, self.sampleName, self.clobber)
+
+    def createGetPeptidesCommand(self):
+        import runnerSupport
+        sizeList = ",".join([str(value) for value in self.sizeList])
+        flagValues = {"-v" : self.somaticVariantPickle,
+                      "-p" : self.proteinFastaPickle,
+                      "-s" : sizeList,
+                      "-o" : self.peptideDataOut}
+        args = [programPaths["python3"], programPaths["getPeptides"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        getPeptidesCommand = argumentFormatter.argumentString
+        return getPeptidesCommand
+    
+class AddHLAData(object):
+    
+    def __init__(self, sampleName, somaticVariantPickle, hlaCallFilesDict, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        import os
+        self.somaticVariantPickle = somaticVariantPickle
+        self.hlaCallFilesDict = hlaCallFilesDict
+        if not self.hlaCallFilesDict:
+            raise RuntimeError("No dictionary of HLA call files was passed (it was empty)")
+        hlaMolecules = list(self.hlaCallFilesDict.keys())
+        self.clobber = clobber
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(somaticVariantPickle, "Pickle of fused filtered somatic variants")
+        print(hlaCallFilesDict)
+        for molecule in hlaMolecules:
+            runnerSupport.checkForRequiredFile(hlaCallFilesDict[molecule], "Athlates HLA call output for HLA-%s" %molecule.upper())
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.addHLACommand = self.createAddHLACommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.hlaDataOut = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".hlaCalls.pkl"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.hlaDataOut, self.sampleName, self.clobber)
+
+    def createAddHLACommand(self):
+        import runnerSupport
+        hlaFileArgs = []
+        for key in list(self.hlaCallFilesDict.keys()):
+            hlaFileArgs.append(":".join([key, self.hlaCallFilesDict[key]]))
+        flagValues = {"-v" : self.somaticVariantPickle,
+                      "flaggedlist" : ["-c", hlaFileArgs],
+                      "-o" : self.hlaDataOut}
+        args = [programPaths["python3"], programPaths["hlaReader"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        addHLACommand = argumentFormatter.argumentString
+        return addHLACommand
+    
+class OncotatorOutputMaker(object):
+    
+    def __init__(self, sampleName, somaticVariantPickle, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.somaticVariantPickle = somaticVariantPickle
+        self.clobber = clobber
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(somaticVariantPickle, "Pickle of fused filtered somatic variants")
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.oncotatorOutputCommand = self.createOncotatorOutputCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.oncotatorMAF = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".maf"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.oncotatorMAF, self.sampleName, self.clobber)
+
+    def createOncotatorOutputCommand(self):
+        import runnerSupport
+        flagValues = {"-f" : self.somaticVariantPickle,
+                      "-o" : self.oncotatorMAF}
+        args = [programPaths["python3"], programPaths["makeOncotatorOutput"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        oncotatorOutputCommand = argumentFormatter.argumentString
+        return oncotatorOutputCommand
+    
+class OncotatorReader(object):
+    
+    def __init__(self, sampleName, somaticVariantPickle, oncotatorAnnotations, clobber = False, outputDirectory = ""):
+        import runnerSupport
+        self.somaticVariantPickle = somaticVariantPickle
+        self.oncotatorAnnotations = oncotatorAnnotations
+        self.clobber = clobber
+        self.sampleName = sampleName
+        if not outputDirectory:
+            self.outputDirectory = ""
+        else:
+            if not os.path.isdir(outputDirectory):
+                raise RuntimeError("Output directory %s does not exist.  Please make the directory before creating jobs." %(outputDirectory))
+            if not outputDirectory.endswith(os.sep):
+                self.outputDirectory = outputDirectory + os.sep
+            else:
+                self.outputDirectory = outputDirectory
+        #SANITY TEST ALL THE THINGS
+        runnerSupport.checkForRequiredFile(somaticVariantPickle, "Pickle of fused filtered somatic variants")
+        runnerSupport.checkForRequiredFile(oncotatorAnnotations, "Oncotator annotation output")
+        #DONE SANITY CHECKING. FOR NOW.
+        self.makeAndCheckOutputFileNames()
+        self.oncotatorReaderCommand = self.createOncotatorReaderCommand()
+        
+    def makeAndCheckOutputFileNames(self):
+        import runnerSupport
+        self.oncotatorPickle = self.outputDirectory + runnerSupport.stripDirectoryAndExtension(self.somaticVariantPickle) + ".oncotatorAnnotation.pkl"
+        self.clobber = runnerSupport.checkForOverwriteRisk(self.oncotatorPickle, self.sampleName, self.clobber)
+
+    def createOncotatorReaderCommand(self):
+        import runnerSupport
+        flagValues = {"-v" : self.somaticVariantPickle,
+                      "-f" : self.oncotatorAnnotations,
+                      "-o" : self.oncotatorPickle}
+        args = [programPaths["python3"], programPaths["oncotatorReader"], flagValues]
+        argumentFormatter = runnerSupport.ArgumentFormatter(args)
+        oncotatorReaderCommand = argumentFormatter.argumentString
+        return oncotatorReaderCommand
+    
+

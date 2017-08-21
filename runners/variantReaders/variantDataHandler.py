@@ -109,7 +109,54 @@ class ProteinChange(object):
         self.enst = enst
         self.changes = changeTupleList
         self.polypeptideChange = len(changeTupleList) > 1
-
+        
+class OncotatorData(object):
+    
+    def __init__(self, gene, transcript, description, variantClassification, variantType, genomeChange, exon, cDNAChange, proteinChange):
+        self.gene = gene
+        self.transcript = transcript
+        self.description = description
+        self.variantClassification = variantClassification
+        self.variantType = variantType
+        self.genomeChange = genomeChange
+        self.exon = exon
+        self.cDNAChange = cDNAChange
+        self.proteinChange = proteinChange
+        
+class NetMHCPrediction(object):
+    
+    def __init__(self, predictionLine):
+        self.bindingFlag = None
+        originalPredictionLine = predictionLine
+        if type(predictionLine) == str:
+            predictionLine = predictionLine.split()
+            originalPredictionLine = predictionLine
+        elif type(predictionLine) in (list, tuple):
+            originalPredictionLine = predictionLine.copy()
+        else:
+            raise RuntimeError("Raw prediction line must be either string or list/tuple.  Got %s\n%s" %(type(predictionLine), predictionLine))
+        if len(predictionLine) == 16:
+            self.bindingFlag = predictionLine[-1]
+            predictionLine = predictionLine[:14]
+        elif len(predictionLine) == 14:
+            pass
+        else:
+            raise RuntimeError("Got an invalid number of fields for prediction line %s" %originalPredictionLine)
+        self.pos = predictionLine.pop(0)
+        self.hla = predictionLine.pop(0).replace("HLA-","")
+        self.peptide = predictionLine.pop(0)
+        self.core = predictionLine.pop(0)
+        self.offset = predictionLine.pop(0)
+        self.ipos = int(predictionLine.pop(0))
+        self.ilen = int(predictionLine.pop(0))
+        self.dpos = int(predictionLine.pop(0))
+        self.dlen = int(predictionLine.pop(0))
+        self.icore = predictionLine.pop(0)
+        self.identity = predictionLine.pop(0)
+        self.log = float(predictionLine.pop(0))
+        self.affinity = float(predictionLine.pop(0))
+        self.rank = float(predictionLine.pop(0))
+        
 def sortVariantDataTuples(variantDataTupleList):
     if not type(variantDataTupleList) == list:
         raise RuntimeError("Variant data tuple list must be passed as a list type.")

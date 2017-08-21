@@ -49,8 +49,6 @@ def collectTandemSNVSites(variantDict, maxDifferenceInPercentage = 0.10, maxFusi
     currentIndex = 0
     while currentIndex < len(variantHashList):
         currentHash = variantHashList[currentIndex]
-        if currentHash[1] == 633353:
-            print("something")
         currentContig, currentPosition, currentRef, currentAlt = currentHash
         currentTumorSupportingPercent = variantDict["combined"][currentHash].tumorSupportingPercent
         if len(currentRef) != 1 or len(currentAlt) != 1:  #catch for indels
@@ -89,7 +87,7 @@ def collectTandemSNVSites(variantDict, maxDifferenceInPercentage = 0.10, maxFusi
             
 def fuseTandemSites(tandemSiteHashDict, unfusedVariantDict):
     import variantDataHandler
-    import scipy
+    import scipy.stats
     unfusedVariantDict["fused"] = {}
     unfusedVariantDict["fused"]["variants"] = unfusedVariantDict['combined'].copy()
     if "RNASupport" in unfusedVariantDict:
@@ -125,7 +123,7 @@ def fuseTandemSites(tandemSiteHashDict, unfusedVariantDict):
             newSiteRNAData.score = round(newSiteRNAData.score / len(tandemSites))
             newSiteRNAData.supportingReads = round(newSiteRNAData.supportingReads / len(tandemSites))
             newSiteRNAData.totalDepth = round(newSiteRNAData.totalDepth / len(tandemSites))
-            newSiteRNAData.oddsRatio, newSiteRNAData.pvalue = scipy.stats.fisher_exact([newSiteRNAData.supportingReads, newSiteRNAData.totalDepth],[newSiteData.tumorSupporting, newSiteData.tumorDepth])
+            newSiteRNAData.oddsRatio, newSiteRNAData.pvalue = scipy.stats.fisher_exact([[newSiteRNAData.supportingReads, newSiteRNAData.totalDepth],[newSiteData.tumorSupporting, newSiteData.tumorDepth]])
         newSiteData.fusedSNV = True
         unfusedVariantDict["fused"]["variants"][siteToFuse] = newSiteData
         if usingRNA:

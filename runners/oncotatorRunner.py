@@ -23,6 +23,7 @@ class CheckArgs():  #class that checks arguments and ultimately returns a valida
         parser.add_argument("-o", "--oncotatorOutput", help = "Output file name", required = True)
         parser.add_argument("-d", "--oncotatorDB", help = "Oncotator database directory", default = programPaths["oncotatorDefaultDB"])
         parser.add_argument("-g", "--genome", help = "Genome", default = programPaths["oncotatorDefaultGenome"])
+        parser.add_argument("-r", "--outputDirectory", help = "Output directory (needed for the log file)", required = True)
         rawArgs = parser.parse_args()
         inputVariantFile = rawArgs.inputVariantFile
         if not os.path.isfile(inputVariantFile):
@@ -34,6 +35,7 @@ class CheckArgs():  #class that checks arguments and ultimately returns a valida
             raise FileNotFoundError("Unable to find oncotator DB directory: %s" %oncotatorDB)
         self.oncotatorDB = oncotatorDB
         self.genome = rawArgs.genome
+        self.outputDirectory = rawArgs.outputDirectory
 
 def setEnvironmentVariables():
     import os
@@ -47,6 +49,7 @@ class OncotatorWrapper(object):
     
     def __init__(self, sampleName, variantFile, outputFile = False, dataBase = False, genome = False, clobber = False, outputDirectory = ""):
         import runnerSupport
+        import os
         self.variantFile = variantFile
         self.clobber = clobber
         if genome:
@@ -69,7 +72,6 @@ class OncotatorWrapper(object):
             else:
                 self.outputDirectory = outputDirectory
         #SANITY TEST ALL THE THINGS
-        import os
         runnerSupport.checkForRequiredFile(self.variantFile, "Input variant file for oncotator")
         assert os.path.isdir(self.dataBase), "Unable to find oncotator database directory %s" %self.dataBase
         #DONE SANITY CHECKING. FOR NOW.
@@ -89,24 +91,27 @@ class OncotatorWrapper(object):
         flagValues = {"-i" : self.variantFile,
                       "-o" : self.oncotatorOut,
                       "-g" : self.genome,
-                      "-d" : self.dataBase}
+                      "-d" : self.dataBase,
+                      "-r" : self.outputDirectory}
         args = [programPaths["python3"], programPaths["oncotatorRunner"], flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(args)
         oncotatorWrapperCommand = argumentFormatter.argumentString
         return oncotatorWrapperCommand
 
-def runOncotator(variantFile, outputFile, dataBase, genome):
+def runOncotator(variantFile, outputFile, dataBase, genome, outputDirectory):
     import os
     setEnvironmentVariables()
     activateVirtualEnvCommand = "source %s" %programPaths["oncotatorVitualEnv"]
+    changeDirectoryCommand = "cd %s" %outputDirectory
+    moduleLoaderCommand = ". /u/local/Modules/default/init/modules.sh; module load python/2.7"
     oncotatorCommand = "%s -v --db-dir %s %s %s %s" %(programPaths["oncotator"], dataBase, variantFile, outputFile, genome)
-    fullCommand = "%s; %s" %(activateVirtualEnvCommand, oncotatorCommand)
+    fullCommand = "%s; %s; %s; %s" %(moduleLoaderCommand, activateVirtualEnvCommand, changeDirectoryCommand, oncotatorCommand)
     exitStatus = os.system(fullCommand)
     return exitStatus
 
 if __name__ == '__main__':
     import sys
     args = CheckArgs()
-    exitStatus = runOncotator(args.inputVariantFile, args.oncotatorOutput, args.oncotatorDB, args.genome)
+    exitStatus = runOncotator(args.inputVariantFile, args.oncotatorOutput, args.oncotatorDB, args.genome, args.outputDirectory)
     print("Oncotator exited with status %s" %exitStatus)
     sys.exit(exitStatus)

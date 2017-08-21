@@ -351,14 +351,14 @@ class GATKProcessBAM(object):
     def submitCommands(self, mock):
         import genericRunners
         tempDir = self.tempDir
-        findTargets = genericRunners.HoffmanJob(self.lastJob.jobID, self.findTargetsCommandIndex, self.sampleName + "indel1", tempDir, self.emailAddress, "a", 1, mock = mock)
-        realigner = genericRunners.HoffmanJob(findTargets.jobID, self.realignerCommandIndex, self.sampleName + "indel2", tempDir, self.emailAddress, "a", 1, mock = mock)
-        bqsrFirstPass = genericRunners.HoffmanJob(realigner.jobID, self.bqsrFirstPassCommandIndex, self.sampleName + "bqsr1", tempDir, self.emailAddress, "a", 1, mock = mock)
-        printReads = genericRunners.HoffmanJob(bqsrFirstPass.jobID, self.bqsrExecuteCommandIndex, self.sampleName + "bqsr2", tempDir, self.emailAddress, "a", 1, mock = mock)
-        indexRecalBAM = genericRunners.HoffmanJob(printReads.jobID, self.indexRecalBAMCommandIndex, self.sampleName + "idxRecal", tempDir, self.emailAddress, "a", 1, mock = mock)
-        bqsrAnalysis = genericRunners.HoffmanJob(bqsrFirstPass.jobID, self.bqsrAnalysisCommandIndex, self.sampleName + "bqsrData", tempDir, self.emailAddress, "a", 1, mock = mock)
+        findTargets = genericRunners.HoffmanJob(self.lastJob.jobID, self.findTargetsCommandIndex, self.sampleName + "indel1", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        realigner = genericRunners.HoffmanJob(findTargets.jobID, self.realignerCommandIndex, self.sampleName + "indel2", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        bqsrFirstPass = genericRunners.HoffmanJob(realigner.jobID, self.bqsrFirstPassCommandIndex, self.sampleName + "bqsr1", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        printReads = genericRunners.HoffmanJob(bqsrFirstPass.jobID, self.bqsrExecuteCommandIndex, self.sampleName + "bqsr2", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        indexRecalBAM = genericRunners.HoffmanJob(printReads.jobID, self.indexRecalBAMCommandIndex, self.sampleName + "idxRecal", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
+        bqsrAnalysis = genericRunners.HoffmanJob(bqsrFirstPass.jobID, self.bqsrAnalysisCommandIndex, self.sampleName + "bqsrData", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
         deleteRealignedBAM = genericRunners.HoffmanJob([printReads.jobID, bqsrAnalysis.jobID], self.deleteRealignedBAMCommandIndex, self.sampleName + "DelRealign", tempDir, self.emailAddress, "a", 1, mock = mock)
-        depthOfCoverage = genericRunners.HoffmanJob([printReads.jobID, indexRecalBAM.jobID], self.depthOfCoverageCommandIndex, self.sampleName + "depth", tempDir, self.emailAddress, "a", 1, mock = mock)
+        depthOfCoverage = genericRunners.HoffmanJob([printReads.jobID, indexRecalBAM.jobID], self.depthOfCoverageCommandIndex, self.sampleName + "depth", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
         return indexRecalBAM.jobID
     
 class SplitAndTrimRNAData(object):
@@ -606,7 +606,7 @@ class Mutect1(object):
     def submitCommands(self, mock):
         import genericRunners
         tempDir = self.tempDir
-        mutect1 = genericRunners.HoffmanJob([self.lastNormalJob.jobID, self.lastTumorJob.jobID], self.mutect1CommandIndex, self.sampleName + "mutect1", tempDir, self.emailAddress, "a", 1, mock = mock)
+        mutect1 = genericRunners.HoffmanJob([self.lastNormalJob.jobID, self.lastTumorJob.jobID], self.mutect1CommandIndex, self.sampleName + "mutect1", tempDir, self.emailAddress, "a", 1, memory = 16, mock = mock)
         rejectFilter = genericRunners.HoffmanJob(mutect1.jobID, self.rejectFilterCommandIndex, self.sampleName + "rejectFilter", tempDir, self.emailAddress, "a", 1, mock = mock)
         return rejectFilter.jobID
     
@@ -895,7 +895,7 @@ class VarScanSomaticsData(object):
         self.indelVarScanReaderCommandIndex = jobList.addJob(indelVarScanReader.varScanReaderCommand)
         snpJobID, indelJobID = self.submitCommands(mock, varScan)
         self.returnData = {"snp":runnerSupport.WorkflowReturn(snpVarScanReader.acceptedOut, snpJobID, snpVarScanReader.clobber),
-                           "indel":runnerSupport.WorkflowReturn(indelVarScanReader.acceptedOut, snpJobID, indelVarScanReader.clobber)}
+                           "indel":runnerSupport.WorkflowReturn(indelVarScanReader.acceptedOut, indelJobID, indelVarScanReader.clobber)}
         
     def submitCommands(self, mock, varScan):
         import genericRunners
@@ -1120,7 +1120,7 @@ class CombineTandemVariants(object):
         self.emailAddress = emailAddress
         self.tempDir = jobList.tempDir
         self.sampleName = sampleName
-        fuseVariants = programRunners.TandemVariantCombine(sampleName, self.combinedVariantPickle, outputFormat = "text", maxFusionLength = maxFusionLength, maxDifferencePercent = maxDifferencePercent, clobber = clobber, outputDirectory = outputDir)
+        fuseVariants = programRunners.TandemVariantCombine(sampleName, self.combinedVariantPickle, outputFormat = "pickle", maxFusionLength = maxFusionLength, maxDifferencePercent = maxDifferencePercent, clobber = clobber, outputDirectory = outputDir)
         self.fusionCommandIndex = jobList.addJob(fuseVariants.fusionCommand)
         fuseVariantsJobID = self.submitCommands(mock)
         self.returnData = runnerSupport.WorkflowReturn(fuseVariants.fusionOut, fuseVariantsJobID, fuseVariants.clobber)
@@ -1130,6 +1130,43 @@ class CombineTandemVariants(object):
         tempDir = self.tempDir
         variantFusion = genericRunners.HoffmanJob([self.lastVariantJob.jobID], self.fusionCommandIndex, self.sampleName + "fuseVariants", tempDir, self.emailAddress, "a", 1, mock = mock)
         return variantFusion.jobID
+    
+class GetPeptides(object):
+    
+    def __init__(self, jobList, sampleName, proteinFasta, fusedVariantPickle = False, sizeList = [8, 9, 10], emailAddress = False, clobber = None, outputDir = "", oncotatorJob = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        if not (fusedVariantPickle or oncotatorJob):
+            raise RuntimeError("No fused somatics job data or fused somatics file passed.")
+        if fusedVariantPickle:
+            self.fusedVariantPickle = fusedVariantPickle
+        else:
+            self.fusedVariantPickle = oncotatorJob.data
+        if not oncotatorJob:
+            oncotatorJob = runnerSupport.EmptyWorkflowReturn()
+        self.oncotatorJob = oncotatorJob
+        clobberSet = set([clobber] + [item.clobber for item in [oncotatorJob]])
+        if True in clobberSet:
+            clobber = True
+        elif False  in clobberSet:
+            clobber = False
+        elif None in clobberSet:
+            clobber = None
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        getPeptides = programRunners.GetPeptides(sampleName, self.fusedVariantPickle, proteinFasta, sizeList, clobber = clobber, outputDirectory = outputDir)
+        self.getPeptidesCommandIndex = jobList.addJob(getPeptides.getPeptidesCommand)
+        getPeptidesJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(getPeptides.peptideDataOut, getPeptidesJobID, getPeptides.clobber)
+        
+    def submitCommands(self, mock):
+        import genericRunners
+        tempDir = self.tempDir
+        getPeptides = genericRunners.HoffmanJob([self.oncotatorJob.jobID], self.getPeptidesCommandIndex, self.sampleName + "peptides", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return getPeptides.jobID
     
 class SickleTrim(object):
     
@@ -1189,7 +1226,52 @@ class SickleTrim(object):
         tempDir = self.tempDir
         sickleTrim = genericRunners.HoffmanJob([self.lastForwardJob.jobID, self.lastReverseJob.jobID], self.sickleTrimCommandIndex, self.sampleName + "Sickle", tempDir, self.emailAddress, "a", 1, mock = mock)
         return sickleTrim.jobID
+
+class OncotatorAnalysis(object):
     
+    def __init__(self, jobList, sampleName, somaticVariantPickle = False, oncotatorDB = False, genome = False, emailAddress = False, clobber = False, outputDirectory = "", lastSomaticJob = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import oncotatorRunner
+        import runnerSupport
+        import os
+        self.sampleName = sampleName
+        if not somaticVariantPickle and not lastSomaticJob:
+            raise RuntimeError("No somatic variant pickle file passed.")
+        if somaticVariantPickle:
+            self.somaticVariantPickle = somaticVariantPickle
+        else:
+            self.somaticVariantPickle = lastSomaticJob.data
+        if not lastSomaticJob:
+            self.lastSomaticJob = runnerSupport.EmptyWorkflowReturn()
+        else:
+            self.lastSomaticJob = lastSomaticJob
+        clobberSet = set([clobber] + [item.clobber for item in [self.lastSomaticJob]])
+        if True in clobberSet:
+            clobber = True
+        elif False  in clobberSet:
+            clobber = False
+        elif None in clobberSet:
+            clobber = None
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        oncotatorOutputMaker = programRunners.OncotatorOutputMaker(sampleName, self.somaticVariantPickle, clobber = clobber, outputDirectory = outputDirectory)
+        oncotatorRunner = oncotatorRunner.OncotatorWrapper(sampleName, oncotatorOutputMaker.oncotatorMAF, dataBase = oncotatorDB, genome = genome, clobber = oncotatorOutputMaker.clobber, outputDirectory = outputDirectory)
+        oncotatorReader = programRunners.OncotatorReader(sampleName, self.somaticVariantPickle, oncotatorRunner.oncotatorOut, oncotatorRunner.clobber, outputDirectory)
+        commandList = [oncotatorOutputMaker.oncotatorOutputCommand, oncotatorRunner.oncotatorWrapperCommand, oncotatorReader.oncotatorReaderCommand]
+        commandString = " && ".join(commandList)
+        self.commandIndex = jobList.addJob(commandString)
+        commandJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(oncotatorReader.oncotatorPickle, commandJobID, oncotatorReader.clobber)
+        
+    def submitCommands(self, mock):
+        import genericRunners
+        tempDir = self.tempDir
+        commandSet = genericRunners.HoffmanJob([self.lastSomaticJob.jobID], self.commandIndex, self.sampleName + "oncotator", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return commandSet.jobID
+
 class Athlates(object):
     
     def __init__(self, jobList, sampleName, hlaMolecule, athlatesDB, bamIn = False, emailAddress = False, clobber = False, outputDirectory = "", hlaBAMJob = False, mock = False):
@@ -1226,25 +1308,112 @@ class Athlates(object):
         self.bedFileOffTarget = bedDir + "hla.non-%s.bed" %self.hlaMolecule
         self.msa = self.athlatesDB + os.sep + "msa" + os.sep + "%s_nuc.txt" %self.hlaMolecule
         self.hlaFasta = self.athlatesDB + os.sep + "ref" + os.sep + "hla.clean.fasta"
-        filterAndConvertOnTarget = programRunners.ViewSAMtoBAM(sampleName + ".on", self.bamIn, self.hlaFasta, samInput = False, bamOutput = False, includeHeaders = True, bedFileFilter = self.bedFileOnTarget, clobber = clobber, outputDirectory = outputDirectory)
-        filterAndConvertOffTarget = programRunners.ViewSAMtoBAM(sampleName + ".off", self.bamIn, self.hlaFasta, samInput = False, bamOutput = False, includeHeaders = True, bedFileFilter = self.bedFileOffTarget, clobber = filterAndConvertOnTarget.clobber, outputDirectory = outputDirectory)
+        filterAndConvertOnTarget = programRunners.ViewSAMtoBAM(sampleName + ".on", self.bamIn, self.hlaFasta, samInput = False, bamOutput = False, includeHeaders = False, bedFileFilter = self.bedFileOnTarget, clobber = clobber, outputDirectory = outputDirectory)
+        filterAndConvertOffTarget = programRunners.ViewSAMtoBAM(sampleName + ".off", self.bamIn, self.hlaFasta, samInput = False, bamOutput = False, includeHeaders = False, bedFileFilter = self.bedFileOffTarget, clobber = filterAndConvertOnTarget.clobber, outputDirectory = outputDirectory)
         sortOnTarget = programRunners.LinuxSort(sampleName, filterAndConvertOnTarget.samOut, self.sampleName + ".on.sorted.sam", ["1,1","3,3"], filterAndConvertOffTarget.clobber, outputDirectory)
         sortOffTarget = programRunners.LinuxSort(sampleName, filterAndConvertOffTarget.samOut, self.sampleName + ".off.sorted.sam", ["1,1","3,3"], sortOnTarget.clobber, outputDirectory)
-        compressOnTarget = programRunners.ViewSAMtoBAM(sampleName + ".on.sorted", sortOnTarget.outputFile, self.hlaFasta, samInput = True, bamOutput = True, includeHeaders = True, clobber = sortOffTarget.clobber, outputDirectory = outputDirectory)
-        compressOffTarget = programRunners.ViewSAMtoBAM(sampleName + ".off.sorted", sortOffTarget.outputFile, self.hlaFasta, samInput = True, bamOutput = True, includeHeaders = True, clobber = compressOnTarget.clobber, outputDirectory = outputDirectory)
+        compressOnTarget = programRunners.ViewSAMtoBAM(sampleName + ".on.sorted", sortOnTarget.outputFile, self.hlaFasta, samInput = True, bamOutput = True, includeHeaders = False, clobber = sortOffTarget.clobber, outputDirectory = outputDirectory)
+        compressOffTarget = programRunners.ViewSAMtoBAM(sampleName + ".off.sorted", sortOffTarget.outputFile, self.hlaFasta, samInput = True, bamOutput = True, includeHeaders = False, clobber = compressOnTarget.clobber, outputDirectory = outputDirectory)
         deleteIntermediates = houseKeeping.Delete([filterAndConvertOnTarget.samOut, filterAndConvertOffTarget.samOut, sortOnTarget.outputFile, sortOffTarget.outputFile])
         athlates = programRunners.Athlates(self.sampleName, compressOnTarget.bamOut, compressOffTarget.bamOut, self.msa, self.hlaMolecule, sortOffTarget.clobber, outputDirectory)
         commandList = [filterAndConvertOnTarget.viewCommand, filterAndConvertOffTarget.viewCommand, sortOnTarget.sortCommand, sortOffTarget.sortCommand, compressOnTarget.viewCommand, compressOffTarget.viewCommand, deleteIntermediates.deleteCommand, athlates.athlatesCommand]
         commandString = " && ".join(commandList)
         self.commandIndex = jobList.addJob(commandString)
         commandJobID = self.submitCommands(mock)
-        self.returnData = runnerSupport.WorkflowReturn(athlates.hlaCallOut, commandJobID, athlates.clobber)
+        self.returnData = runnerSupport.WorkflowReturn(athlates.hlaTypingOutput, commandJobID, athlates.clobber)
         
     def submitCommands(self, mock):
         import genericRunners
         tempDir = self.tempDir
         commandSet = genericRunners.HoffmanJob([self.hlaBAMJob.jobID], self.commandIndex, self.sampleName + "HLA" + self.hlaMolecule, tempDir, self.emailAddress, "a", 1, mock = mock)
         return commandSet.jobID
+    
+class AddHLA(object):
+    
+    def __init__(self, jobList, sampleName, hlaCallFilesDict, somaticVariantPickle = False, emailAddress = False, clobber = None, outputDir = "", lastSomaticPickleJob = False, hlaJobs = False, mock = False):
+        import houseKeeping
+        import gatkRunners
+        import programRunners
+        import runnerSupport
+        if not (somaticVariantPickle or lastSomaticPickleJob):
+            raise RuntimeError("No somatics job data or somatics file passed.")
+        if not hlaCallFilesDict:
+            raise RuntimeError("No dictionary of molecule:filepath for HLA call files given.")
+        if somaticVariantPickle:
+            self.somaticVariantPickle = somaticVariantPickle
+        else:
+            self.somaticVariantPickle = lastSomaticPickleJob.data
+        if not lastSomaticPickleJob:
+            lastSomaticPickleJob = runnerSupport.EmptyWorkflowReturn()
+        if not hlaJobs:
+            hlaJobs = runnerSupport.EmptyWorkflowReturn()
+        self.lastSomaticPickleJob = lastSomaticPickleJob
+        self.hlaJobs = hlaJobs
+        clobberSet = set([clobber] + [item.clobber for item in [self.lastSomaticPickleJob, self.hlaJobs]])
+        if True in clobberSet:
+            clobber = True
+        elif False  in clobberSet:
+            clobber = False
+        elif None in clobberSet:
+            clobber = None
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        addHLA = programRunners.AddHLAData(sampleName, self.somaticVariantPickle, hlaCallFilesDict, clobber = clobber, outputDirectory = outputDir)
+        self.addHLACommandIndex = jobList.addJob(addHLA.addHLACommand)
+        addHLAJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(addHLA.hlaDataOut, addHLAJobID, addHLA.clobber)
+        
+    def submitCommands(self, mock):
+        import genericRunners
+        hlaJobIDs = self.hlaJobs.jobID
+        if type(hlaJobIDs) == int:
+            hlaJobIDs = [hlaJobIDs]
+        if self.lastSomaticPickleJob:
+            if type(self.lastSomaticPickleJob.jobID) == int:
+                hlaJobIDs.append(self.lastSomaticPickleJob.jobID)
+            else:
+                hlaJobIDs += self.lastSomaticPickleJob.jobID
+        tempDir = self.tempDir
+        addHLA = genericRunners.HoffmanJob(hlaJobIDs, self.addHLACommandIndex, self.sampleName + "AddHLA", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return addHLA.jobID
+    
+class NetMHCAnalysis(object):
+    
+    def __init__(self, jobList, sampleName, somaticVariantPickle = False, emailAddress = False, clobber = None, outputDir = "", lastSomaticPickleJob = False, mock = False):
+        import houseKeeping
+        import variantReaders.netMHCAnalyzer
+        import programRunners
+        import runnerSupport
+        if not (somaticVariantPickle or lastSomaticPickleJob):
+            raise RuntimeError("No somatics job data or somatics file passed.")
+        if somaticVariantPickle:
+            self.somaticVariantPickle = somaticVariantPickle
+        else:
+            self.somaticVariantPickle = lastSomaticPickleJob.data
+        if not lastSomaticPickleJob:
+            lastSomaticPickleJob = runnerSupport.EmptyWorkflowReturn()
+        self.lastSomaticPickleJob = lastSomaticPickleJob
+        clobberSet = set([clobber] + [item.clobber for item in [self.lastSomaticPickleJob]])
+        if True in clobberSet:
+            clobber = True
+        elif False  in clobberSet:
+            clobber = False
+        elif None in clobberSet:
+            clobber = None
+        self.emailAddress = emailAddress
+        self.tempDir = jobList.tempDir
+        self.sampleName = sampleName
+        netMHC = variantReaders.netMHCAnalyzer.netMHCWrapper(sampleName, self.somaticVariantPickle, clobber = clobber, outputDirectory = outputDir)
+        self.netMHCCommandIndex = jobList.addJob(netMHC.netMHCWrapperCommand)
+        netHMCJobID = self.submitCommands(mock)
+        self.returnData = runnerSupport.WorkflowReturn(netMHC.peptideTableOut, netHMCJobID, netMHC.clobber)
+        
+    def submitCommands(self, mock):
+        import genericRunners
+        tempDir = self.tempDir
+        netMHC = genericRunners.HoffmanJob([self.lastSomaticPickleJob.jobID], self.netMHCCommandIndex, self.sampleName + "netMHC", tempDir, self.emailAddress, "a", 1, mock = mock)
+        return netMHC.jobID
     
 class Capstone(object):
     

@@ -107,7 +107,7 @@ class ProteinChangeHandler(object):
             self.dipeptideChange = True
             rawPositions = re.search("^\d+\_\d+", rawChange).group(0)
             rawPeptides = re.search("\D+\>\D+$", rawChange).group(0)
-            self.positions = [int(number) for number in rawPositions.split("_")]
+            self.position = [int(number) for number in rawPositions.split("_")]
             self.reference, self.variant = rawPeptides.split(">")
             self.changes = []
             if self.reference == self.variant:
@@ -129,6 +129,7 @@ class ProteinChangeHandler(object):
 class OncotatorDataLine(object):
     
     def __init__(self, rawLine, header):
+        import variantDataHandler
         self.header = header
         self.rawLine = rawLine.strip()
         self.lineArray = self.rawLine.split("\t")
@@ -136,6 +137,8 @@ class OncotatorDataLine(object):
         self.position = int(self.lineArray[header.pos])
         self.referenceAllele = self.lineArray[header.ref]
         self.altAllele = self.lineArray[header.alt]
+        self.variantClassification = self.lineArray[header.variant_classification]
+        self.variantType = self.lineArray[header.variantType]
         self.hashValue = (self.contig, self.position, self.referenceAllele, self.altAllele)
         self.proteinChange = self.lineArray[header.proteinchange]
         self.proteinChange = self.proteinChange.strip()
@@ -143,11 +146,15 @@ class OncotatorDataLine(object):
             self.proteinChange = ProteinChangeHandler(self.proteinChange)
         self.enst = self.lineArray[header.enst]
         self.gene = self.lineArray[header.gene]
+        self.oncotatorData = variantDataHandler.OncotatorData(self.gene, self.enst, self.lineArray[header.description], self.lineArray[header.variant_classification], self.lineArray[header.variant_type], self.lineArray[header.genome_change], self.lineArray[header.transcript_exon], self.lineArray[header.cDNA_Change], self.lineArray[header.protein_Change])
         
 def analyzeOncotatorOutput(fileName, skipNonsense = True):
     import variantDataHandler
-    oncotatorData = open(fileName, 'r')
+    oncotatorData = open(fileName, 'r', encoding="latin-1")  #specifying this encoding because oncotator seems to sometimes put out some odd characters that break python3's strict text handling.  Not sure why this is, and the line in question appeared perfectly fine.
     peptideChangeCollector = {}
+    oncotatorClassCounts = {}
+    oncotatorTypeCounts = {}
+    oncotatorDataCollector = {}
     header = False
     for line in oncotatorData:
         line = line.strip()
@@ -160,23 +167,33 @@ def analyzeOncotatorOutput(fileName, skipNonsense = True):
             continue
         else:
             data = OncotatorDataLine(line, header)
+            if not data.variantClassification in oncotatorClassCounts:
+                oncotatorClassCounts[data.variantClassification] = 0
+            oncotatorClassCounts[data.variantClassification] += 1
+            if not data.variantType in oncotatorTypeCounts:
+                oncotatorTypeCounts[data.variantType] = 0
+            oncotatorTypeCounts[data.variantType] += 1
             if not data.proteinChange:
                 continue
             if skipNonsense and data.proteinChange.nonsense:
                 continue
             peptideChangeCollector[data.hashValue] = variantDataHandler.ProteinChange(data.gene, data.enst, data.proteinChange.changes)
+            oncotatorDataCollector[data.hashValue] = data.oncotatorData
     oncotatorData.close()
-    return peptideChangeCollector
+    return (peptideChangeCollector, oncotatorDataCollector, oncotatorClassCounts, oncotatorTypeCounts)
 
 if __name__ == '__main__':
     import pickle
     args = CheckArgs()
-    peptideChanges = analyzeOncotatorOutput(args.file)
+    peptideChanges, oncotatorData, oncotatorClassCounts, oncotatorTypeCounts = analyzeOncotatorOutput(args.file)
     print("Found %s peptide changes.  Adding to variant pickle." %len(peptideChanges))
     variantPickleFile = open(args.variantPickle, 'rb')
     variantPickle = pickle.load(variantPickleFile)
     variantPickleFile.close()
     variantPickle["fused"]["proteinChanges"] = peptideChanges
+    variantPickle["fused"]["oncotatorData"] = oncotatorData
+    variantPickle["fused"]["oncotatorClassCounts"] = oncotatorClassCounts
+    variantPickle["fused"]["oncotatorTypeCounts"] = oncotatorTypeCounts
     output = open(args.output, 'wb')
     pickle.dump(variantPickle, output)
     output.close()

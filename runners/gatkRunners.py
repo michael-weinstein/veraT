@@ -289,22 +289,23 @@ class HaplotypeCallerQueue(object):
     
     def __init__(self, sampleName, bamIn, refGenomeFasta, bedFile = False, emitRefConfidence = "GVCF", standCallConf = False, variantIndexType = "LINEAR", variantIndexParameter = 128000, dbSNP = False, annotation = ["Coverage", "AlleleBalance"], intervalPadding = 100, pairHiddenMarkovModel = "VECTOR_LOGLESS_CACHING", allowPotentiallyMisencodedQualityScores = True, dontUseSoftClippedBases = False, clobber = False, cores =5, scatterMemory = 8, outputDirectory = ""):
         import runnerSupport
+        import os
         self.clobber = clobber
         self.cores = max([cores, 5])  #using cores to keep compatibility with the old version that used nct.  No reason to use less than 5 cores here.
         self.scatterMemory = scatterMemory
-        self.bedFile = bedFile
+        self.bedFile = os.path.abspath(bedFile)
         self.dontUseSoftClippedBases = dontUseSoftClippedBases
         self.standCallConf = standCallConf
         self.sampleName = sampleName
         self.allowPotentiallyMisencodedQualityScores = allowPotentiallyMisencodedQualityScores
-        self.refGenomeFasta = refGenomeFasta
+        self.refGenomeFasta = os.path.abspath(refGenomeFasta)
         if emitRefConfidence == "GVCF":
             self.emitRefConfidence = "ReferenceConfidenceMode.GVCF"
         else:
             self.emitRefConfidence = emitRefConfidence
         self.variantIndexType = variantIndexType
         self.variantIndexParameter = variantIndexParameter
-        self.dbSNP = dbSNP
+        self.dbSNP = os.path.abspath(dbSNP)
         self.annotation = annotation
         if not type(self.annotation) == list:
             self.annotation = [self.annotation]
@@ -369,8 +370,8 @@ class HaplotypeCallerQueue(object):
         import os
         gatkTool = "HaplotypeCaller"
         commandLineArgs =  {"analysis_type" : gatkTool,
-                            "input_file" : self.bamIn,
-                            "out" : self.outputFileName,
+                            "input_file" : os.path.abspath(self.bamIn),
+                            "out" : os.path.abspath(self.outputFileName),
                             "emitRefConfidence" : self.emitRefConfidence,
                             "reference_sequence" : self.refGenomeFasta,
                             "variant_index_parameter" : self.variantIndexParameter,
@@ -390,7 +391,7 @@ class HaplotypeCallerQueue(object):
         if self.variantIndexType:
             commandLineArgs["variant_index_type"] = "GATKVCFIndexType.%s" %self.variantIndexType
         shortName = "hc"
-        scalaFile = createScala(shortName, commandLineArgs, self.cores, 1, self.scalaFile)
+        self.scalaFile = createScala(shortName, commandLineArgs, self.cores, 1, self.scalaFile)
 
     def createGATKCommand(self):
         import runnerSupport
@@ -874,4 +875,4 @@ def createScala(shortName, commandLineArgs, count, memory, scalaFileName):
     scalaFile = open(scalaFileName, 'w')
     scalaFile.write(scala)
     scalaFile.close()
-    return scalaFileName
+    return os.path.abspath(scalaFileName)
