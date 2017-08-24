@@ -219,3 +219,41 @@ class FastqDirectoryError(Exception):
         
     def __str__(self):
         return repr(self.message)
+    
+def cleanDirectory(directory):
+    import re
+    import os
+    if not os.path.isdir(directory):
+        raise FileNotFoundError("Unable to find a directory at %s" %directory)
+    def breakName(name):
+        return name.split(".")
+    def fixName(name):
+        return ".".join(name)
+    for path, directories, files in os.walk(directory):
+        print("%s\t%s\t%s" %(path, directories, files))
+        for file in files:
+            if not (file.endswith(".fastq") or file.endswith("fastq.gz")):
+                continue
+            oldName = file
+            newName = breakName(oldName)
+            newName = [re.sub("\W", "_", part) for part in newName]
+            newName = fixName(newName)
+            print("%s %s %s" %(oldName, newName, oldName == newName))
+            if not newName == oldName:
+                oldPath = path + os.sep + oldName
+                newPath = path + os.sep + newName
+                print("Changing %s to %s" %(oldPath, newPath))
+                os.replace(oldPath, newPath)
+
+if __name__ == '__main__':
+    import sys
+    import time
+    args = sys.argv
+    if not args[1] == "clean":
+        raise RuntimeError("Only permitted action is \"clean\" while %s was passed" %args[1])
+    directory = args[2]
+    print("Starting cleanup in 10 seconds (press CTRL-C to abort)...", end = "", flush = True)
+    time.sleep(10)
+    print("STARTING")
+    cleanDirectory(directory)
+    print("DONE")
