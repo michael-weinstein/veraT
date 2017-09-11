@@ -84,10 +84,10 @@ class IndelRealignment(object):
                              "-targetIntervals" : self.intervalsOut,
                              "flaggedlist" : ["-known", self.known],
                              "--allow_potentially_misencoded_quality_scores" : self.allowPotentiallyMisencodedQualityScores}
-        gatkArgs = [programPaths["java"], "-Xmx1g", "-jar", gatkPath, flagValuesTarget]
+        gatkArgs = [programPaths["java"], "-Xmx3g", "-jar", gatkPath, flagValuesTarget]
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         targetCommand = argumentFormatter.argumentString
-        gatkArgs = [programPaths["java"], "-Xmx1g", "-jar", gatkPath, flagValuesRealign]
+        gatkArgs = [programPaths["java"], "-Xmx3g", "-jar", gatkPath, flagValuesRealign]
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         realignCommand = argumentFormatter.argumentString
         return (targetCommand, realignCommand)
@@ -369,15 +369,16 @@ class HaplotypeCallerQueue(object):
     def makeScalaFile(self):
         import os
         gatkTool = "HaplotypeCaller"
-        if type(self.bamIn) == list:
-            if len(self.bamIn) > 1:
-                raise RuntimeError("BAM in came with more than one entry")
-            else:
-                bamIn = self.bamIn[0]
-        else:
-            bamIn = self.bamIn
+        # if type(self.bamIn) == list:
+        #     if len(self.bamIn) > 1:
+        #         raise RuntimeError("BAM in came with more than one entry")
+        #     else:
+        #         bamIn = self.bamIn[0]
+        # else:
+        #     bamIn = self.bamIn
+        bamIn = [os.path.abspath(file) for file in self.bamIn]
         commandLineArgs =  {"analysis_type" : gatkTool,
-                            "input_file" : os.path.abspath(bamIn),
+                            "input_file" : bamIn,
                             "out" : os.path.abspath(self.outputFileName),
                             "emitRefConfidence" : self.emitRefConfidence,
                             "reference_sequence" : self.refGenomeFasta,
@@ -402,11 +403,12 @@ class HaplotypeCallerQueue(object):
 
     def createGATKCommand(self):
         import runnerSupport
+        import os
         gatkArgs = [programPaths["java"], "-Xmx4g", "-Djava.io.tempdir=%s" %(self.outputDirectory + ".tmp"), "-jar", gatkQueuePath, "-S %s" %self.scalaFile, "-startFromScratch", "-qsub", '-jobResReq "h_data=%sG,h_rt=24:00:00" -run' %self.scatterMemory]
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         haplotypeCallerCommand = argumentFormatter.argumentString
         environmentVariableSettings = "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$SGE_ROOT/lib/lx24-amd64:/u/systems/UGE8.0.1/lib/lx-amd64; export DRMAA_LIBRARY_PATH=/u/systems/UGE8.0.1vm/lib/lx-amd64/libdrmaa.so"
-        haplotypeCallerCommand = "%s; cd %s; %s" %(environmentVariableSettings, self.workingDirectory, haplotypeCallerCommand)
+        haplotypeCallerCommand = "%s; cd %s; %s" %(environmentVariableSettings, os.path.abspath(self.workingDirectory), haplotypeCallerCommand)
         return (haplotypeCallerCommand)
     
 class DepthOfCoverage(object):

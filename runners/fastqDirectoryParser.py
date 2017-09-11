@@ -101,6 +101,7 @@ class FastqDirectory(object):
     
     def getAllFilesForSample(self, criteria, returnMatrix = False):
         #organizing by sampleName, then lane, then pairedEnd
+        #print([str(item) for item in self.fileList])
         searchResults = self.find(criteria)
         self.collisionCheck(searchResults)
         sampleTree = {}

@@ -28,6 +28,7 @@ class CheckArgs(object):
         parser.add_argument("--snp1000g", help = "1000 genomes SNP VCF", default = runnerRoot + "references/gatkPackage/1000G_phase1.snps.high_confidence.hg19.sites.vcf")
         parser.add_argument("--indel1000g", help = "1000 genomes indel VCF", default = runnerRoot + "references/gatkPackage/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf")        
         parser.add_argument("-o", "--outputDirectory", help = "Directory for data output", required = True)
+        parser.add_argument("--peptideDictionaryPickle", help = "Pickled dictionary of protein sequence and ID data.", default = runnerRoot + "/references/peptides/Homo_sapiens.GRCh37.75.pep.all.fa.pkl")
         rawArgs = parser.parse_args()
         self.mock = rawArgs.mock
         self.tumorCriteria = rawArgs.tumorCriteria.split(",")
@@ -43,6 +44,10 @@ class CheckArgs(object):
         self.outputDir = outputDir
         self.refGenomeFasta = rawArgs.referenceGenomeFasta
         self.athlatesDB = rawArgs.athlatesDB
+        peptideDictionaryPickle = rawArgs.peptideDictionaryPickle
+        if not os.path.isfile(peptideDictionaryPickle):
+            raise FileNotFoundError("Unable to find peptide dictionary pickle at %s" %peptideDictionaryPickle)
+        self.peptideDictionaryPickle = peptideDictionaryPickle
         self.hlaFasta = self.athlatesDB + "/ref/hla.clean.fasta"
         self.intervals = rawArgs.intervals
         self.jointGenotypingGVCFDirectory = rawArgs.jointGenotypingGVCFDirectory
@@ -153,6 +158,7 @@ def main():
 #RNA ANALYSIS SECTION
         # starts with iteratively set up alignment jobs for tumor RNA sample (iterate over sample, then lane, then take pairs of paired ends if available)
     rnaAlignJobs = False
+    #print ("Keys: %s" %(keys(rnaSeqTree)))
     for sample in keys(rnaSeqTree): #should be only one here
         for lane in keys(rnaSeqTree[sample]):
             currentLane = rnaSeqTree[sample][lane]
@@ -160,9 +166,14 @@ def main():
                 currentLane[2] = FastqFile(False)
             sampleFile = currentLane[1]
             if not rnaAlignJobs:
+                #print("Hit the first")
                 rnaAlignJobs = workFlows.AlignHisat2AddReadGroups(jobList, tumorSampleName + "RNA" + str(lane), args.refGenomeFasta, args.hisatIndexData, currentLane[1].filePath, pe2 = currentLane[2].filePath, readGroupID = lane, readGroupSampleName = tumorSampleName + "RNA", emailAddress = False, clobber = combineSomaticVariantsJob.clobber, outputDir = outputDir, mock = args.mock).returnData
             else:
+                #print("Hit the second")
                 rnaAlignJobs.addJob(workFlows.AlignHisat2AddReadGroups(jobList, tumorSampleName + "RNA" + str(lane), args.refGenomeFasta, args.hisatIndexData, currentLane[1].filePath, pe2 = currentLane[2].filePath, readGroupID = lane, readGroupSampleName = tumorSampleName + "RNA", emailAddress = False, clobber = rnaAlignJobs.clobber, outputDir = outputDir, mock = args.mock).returnData)
+    #print(rnaAlignJobs)
+    if not rnaAlignJobs:
+        raise RuntimeError("Got back no RNA alignment jobs. Please check your definition of RNA sequence data files.")
     rnaDeduplicateJobs = workFlows.MergeBAMFilesAndDeduplicate(jobList, tumorSampleName + "RNA", clobber = rnaAlignJobs.clobber, emailAddress = args.email, outputDir = outputDir, lastJob = rnaAlignJobs, mock = args.mock).returnData
     rnaSplitAndTrim = workFlows.SplitAndTrimRNAData(jobList, tumorSampleName + "RNA", args.refGenomeFasta, emailAddress = args.email, clobber = rnaDeduplicateJobs.clobber, outputDir = outputDir, lastJob = rnaDeduplicateJobs, mock = args.mock).returnData
     rnaProcessJobs = workFlows.GATKProcessBAM(jobList, tumorSampleName + "RNA", args.refGenomeFasta, dbSNP = args.dbSNP, intervals = args.intervals, clobber = rnaSplitAndTrim.clobber, emailAddress = args.email, outputDir = outputDir, lastJob = rnaSplitAndTrim, mock = args.mock).returnData
@@ -173,6 +184,12 @@ def main():
 
     #find any tandem variants (variants at contiguous positions) and combine them into a single polynucleotide variant
     fuseTandemVariants = workFlows.CombineTandemVariants(jobList, tumorSampleName, emailAddress = args.email, clobber = addRNASupportData.clobber, outputDir = outputDir, lastVariantJob = addRNASupportData, mock = args.mock).returnData
+    
+    #run oncotator and analyze the annotations
+    oncotator = workFlows.OncotatorAnalysis(jobList, tumorSampleName, emailAddress = args.email, clobber = fuseTandemVariants.clobber, outputDirectory = outputDir, lastSomaticJob = fuseTandemVariants, mock = args.mock).returnData
+    
+    #get lists of peptides for each coding variant
+    getPeptides = workFlows.GetPeptides(jobList, tumorSampleName, args.peptideDictionaryPickle, sizeList = [8,9,10], emailAddress = args.email, clobber = oncotator.clobber, outputDir = outputDir, oncotatorJob = oncotator, mock = args.mock).returnData
 
 #HLA CALLING SECTION    
     #iteratively set up alignment jobs for normal tissue
@@ -196,15 +213,27 @@ def main():
     #merge and deduplicate
     hlaDeduplicateJobs = workFlows.MergeBAMFilesAndDeduplicate(jobList, "HLA" + tumorSampleName, clobber = hlaAlignJobs.clobber, emailAddress = args.email, outputDir = hlaOutputDirectory, lastJob = hlaAlignJobs, mock = args.mock).returnData
     athlatesJobs = False
+    hlaCallTable = {}
     for hlaMolecule in ["A", "B", "C"]:
         if not athlatesJobs:
-            athlatesJobs = workFlows.Athlates(jobList, "HLA%s" %hlaMolecule + tumorSampleName,  hlaMolecule, args.athlatesDB, emailAddress = args.email, clobber = hlaDeduplicateJobs.clobber, outputDirectory = outputDir, hlaBAMJob = hlaDeduplicateJobs, mock = args.mock).returnData
+            currentMoleculeReturn = workFlows.Athlates(jobList, "HLA%s" %hlaMolecule + tumorSampleName,  hlaMolecule, args.athlatesDB, emailAddress = args.email, clobber = hlaDeduplicateJobs.clobber, outputDirectory = outputDir, hlaBAMJob = hlaDeduplicateJobs, mock = args.mock).returnData
+            athlatesJobs = currentMoleculeReturn
+            hlaCallTable[hlaMolecule] = currentMoleculeReturn.data
         else:
-            athlatesJobs.addJob(workFlows.Athlates(jobList, "HLA%s" %hlaMolecule + tumorSampleName,  hlaMolecule, args.athlatesDB, emailAddress = args.email, clobber = hlaDeduplicateJobs.clobber, outputDirectory = outputDir, hlaBAMJob = hlaDeduplicateJobs, mock = args.mock).returnData)  
+            athlatesJobs = currentMoleculeReturn
+            currentMoleculeReturn = workFlows.Athlates(jobList, "HLA%s" %hlaMolecule + tumorSampleName,  hlaMolecule, args.athlatesDB, emailAddress = args.email, clobber = hlaDeduplicateJobs.clobber, outputDirectory = outputDir, hlaBAMJob = hlaDeduplicateJobs, mock = args.mock).returnData
+            hlaCallTable[hlaMolecule] = currentMoleculeReturn.data
+            athlatesJobs.addJob(currentMoleculeReturn)
+            
+#Integrate the HLA data and the peptide data to submit to netMHC
+    addHLA = workFlows.AddHLA(jobList, tumorSampleName, hlaCallTable, emailAddress = args.email, clobber = currentMoleculeReturn.clobber, outputDir = outputDir, lastSomaticPickleJob = getPeptides, hlaJobs = athlatesJobs, mock = args.mock).returnData
+    
+#Run netMHC predictions on the peptides and create an output file
+    netMHC = workFlows.NetMHCAnalysis(jobList, tumorSampleName, emailAddress = args.email, clobber = addHLA.clobber, outputDir = outputDir, lastSomaticPickleJob = addHLA, mock = args.mock).returnData
   
 #CLOSING OUT    
     #Capstone to mark completion
-    capstoneDependencies = [addRNASupportData.jobID] + athlatesJobs.jobID
+    capstoneDependencies = [netMHC.jobID]
     capstoneJobID = workFlows.Capstone(jobList, tumorSampleName, capstoneDependencies, args.email, outputDir, args.mock)
     
     #ending the pipeline

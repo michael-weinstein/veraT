@@ -28,8 +28,8 @@ class CheckArgs():  #class that checks arguments and ultimately returns a valida
         inputVariantFile = rawArgs.inputVariantFile
         if not os.path.isfile(inputVariantFile):
             raise FileNotFoundError("Unable to find input pickle file at %s" %inputVariantFile)
-        self.inputVariantFile = inputVariantFile
-        self.oncotatorOutput = rawArgs.oncotatorOutput
+        self.inputVariantFile = os.path.abspath(inputVariantFile)
+        self.oncotatorOutput = os.path.abspath(rawArgs.oncotatorOutput)
         oncotatorDB = rawArgs.oncotatorDB
         if not os.path.isdir(oncotatorDB):
             raise FileNotFoundError("Unable to find oncotator DB directory: %s" %oncotatorDB)
@@ -106,6 +106,7 @@ def runOncotator(variantFile, outputFile, dataBase, genome, outputDirectory):
     moduleLoaderCommand = ". /u/local/Modules/default/init/modules.sh; module load python/2.7"
     oncotatorCommand = "%s -v --db-dir %s %s %s %s" %(programPaths["oncotator"], dataBase, variantFile, outputFile, genome)
     fullCommand = "%s; %s; %s; %s" %(moduleLoaderCommand, activateVirtualEnvCommand, changeDirectoryCommand, oncotatorCommand)
+    print("Setting environment and running oncotator with command: \n%s\n" %(fullCommand.replace("; ",";\n")))
     exitStatus = os.system(fullCommand)
     return exitStatus
 
