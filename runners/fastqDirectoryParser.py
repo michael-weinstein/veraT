@@ -203,6 +203,7 @@ class FastqFile(object):
                     delimiter = "_"
                 else:
                     self.splitSampleName = [sampleName] #nothing to split on here
+                    return True
             elif len(nonWordNonUnderscore) > 1:
                 print("WARNING: Sample name in %s has multiple non-word dividing characters. Unable to analyze sample name." %(self.fileName))
                 self.splitSampleName = re.split("\W", sampleName)
