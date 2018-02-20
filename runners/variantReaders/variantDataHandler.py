@@ -102,6 +102,9 @@ class RNASupportData(object):
         printItems = [str(item) for item in printItems]
         return ",".join(printItems)
 
+    def __bool__(self):
+        return bool(self.totalDepth)
+
 class ProteinChange(object):
     
     def __init__(self, gene, enst, changeTupleList):

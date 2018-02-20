@@ -7,16 +7,12 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         import os
         parser = argparse.ArgumentParser()
         parser.add_argument("-f", "--mpileupFile", help="RNA mPileup", required=True)
-        parser.add_argument("-s", "--somaticVariants", help="Pickle containing somatic variant analysis from DNA",
-                            required=True)
+        parser.add_argument("-s", "--somaticVariants", help="Pickle containing somatic variant analysis from DNA", required=True)
         parser.add_argument("-o", "--output", help="Output pickle file name")
-        parser.add_argument("-m", "--minDiff",
-                            help="Minimum percent difference in expression vs. DNA mutant/wild-type ratios to consider worth scoring",
-                            default=10, type=int)
+        parser.add_argument("-m", "--minDiff", help="Minimum percent difference in expression vs. DNA mutant/wild-type ratios to consider worth scoring", default=10, type=int)
         parser.add_argument("-v", "--verbose", help="Verbose output mode", action='store_true')
         parser.add_argument("-p", "--parallelChromosomes", help="Run chromosomes in parallel", action='store_true')
-        parser.add_argument("--chromosome",
-                            help="Specifies the chromosome for analysis.  Should only be used manually for debug.")
+        parser.add_argument("--chromosome", help="Specifies the chromosome for analysis.  Should only be used manually for debug.")
         parser.add_argument("--clockoutFile", help="Clockout file for scatter/gather jobs")
         parser.add_argument("--mock", help="Do not actually submit jobs to queue", action='store_true')
         rawArgs = parser.parse_args()
@@ -35,7 +31,16 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         self.minDiff = rawArgs.minDiff
         self.verbose = rawArgs.verbose
         self.parallelChromosomes = rawArgs.parallelChromosomes
-        self.chromosome = rawArgs.chromosome
+        chromosome = rawArgs.chromosome
+        if chromosome and "," in chromosome:
+            self.chromosome, jumpLines = chromosome.split(",")
+            try:
+                self.jumpLines = int(jumpLines)
+            except ValueError:
+                raise ValueError("Value of lines to jump must be an integer.")
+        else:
+            self.chromosome = chromosome
+            self.jumpLines = None
         self.clockoutFile = rawArgs.clockoutFile
         self.mock = rawArgs.mock
 
@@ -67,9 +72,7 @@ class ScatterJob(object):
         import sys
         pythonInterpreter = sys.executable
         thisScript = os.path.abspath(__file__)
-        mPileupCommand = [pythonInterpreter, thisScript, "--mpileupFile", args.mpileupFile, "--somaticVariants",
-                          args.somaticVariants, "--output", self.outputFile, "--minDiff", args.minDiff, "--chromosome",
-                          self.chromosome.argument, "--clockoutFile", self.clockoutFile]
+        mPileupCommand = [pythonInterpreter, thisScript, "--mpileupFile", args.mpileupFile, "--somaticVariants", args.somaticVariants, "--output", self.outputFile, "--minDiff", args.minDiff, "--chromosome", self.chromosome.argument, "--clockoutFile", self.clockoutFile]
         qsubCommand = "qsub -cwd -V -N mpsub%s -l h_data=8G,time=24:00:00 -m a" % self.chromosome.chromosome
         fullCommand = 'echo "%s" | %s' % (mPileupCommand, qsubCommand)
         submitted = False
@@ -185,40 +188,41 @@ def createChromosomeIndex(mpileupFile):
     return chromosomeList
 
 
-def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable, minDiff, verbose=False,
-                              chromosomeRestriction=False):
+def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable, minDiff, verbose=False, chromosomeRestriction=False, jumpLines=False):
     import variantDataHandler
     import scipy.stats
     import re
+    contig = None #initializing this for display in progress reporter
     nonBaseRegex = re.compile("[^ATGC]", re.IGNORECASE)  # compiling this regex now so it only needs to be compiled once
     plusBaseRegex = re.compile("\+\d+[ATGC]+", re.IGNORECASE)
     contigRegex = re.compile("^(.+?)\t")
     mpileup = openMPileupFile(mpileupFile)
     supportData = {}
-    lociOfInterest = [(item[0], str(item[1])) for item in
-                      somaticVariants]  # using a string of the position to improve performance, will convert hundreds of times now instead of converting millions of times during mpileup reading
+    lociOfInterest = [(item[0], str(item[1])) for item in somaticVariants]  # using a string of the position to improve performance, will convert hundreds of times now instead of converting millions of times during mpileup reading
     progress = 0
     startedRegionOfInterest = False
-    if chromosomeRestriction and "," in chromosomeRestriction:
-        chromosomeRestriction, jumpLines = chromosomeRestriction.split(",")
+    #print("ChrRest: %s" % chromosomeRestriction)
+    if jumpLines:
         for i in range(jumpLines):
             throwaway = mpileup.readline()
     for line in mpileup:
+        if verbose:
+            if progress % 10000 == 0:
+                print("Processed %s lines. Currently on %s" %(progress, contig), end="\r")
+            progress += 1
         if chromosomeRestriction:
             chrGrab = re.match(contigRegex, line)
-            chromosome = chrGrab.group(1)
-            inRegionOfInterest = chromosome == chromosomeRestriction
+            contig = chrGrab.group(1)
+            inRegionOfInterest = contig == chromosomeRestriction
+            #print("In region: %s" %inRegionOfInterest)
             if not inRegionOfInterest:
-                if not started:
+                if not startedRegionOfInterest:
+                    #print("Skip ", end = "\r")
                     continue
                 else:
                     break
             else:
-                started = True
-        if verbose:
-            if progress % 10000 == 0:
-                print("Processed %s lines" % progress, end="\r")
-            progress += 1
+                startedRegionOfInterest = True
         line = line.strip()
         if not line:
             continue
@@ -235,10 +239,8 @@ def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable,
             position = int(position)
             totalDepthRNA = int(depth)
             reads = reads.upper().replace(".", ref).replace(",", ref)
-            reads = re.sub(plusBaseRegex, "",
-                           reads)  # get rid of any plus (digit)(base) reads here, otherwise the base will remain as an alt
-            reads = re.sub(nonBaseRegex, "",
-                           reads)  # get rid of anything not a base (we have already replaced the periods and commas)
+            reads = re.sub(plusBaseRegex, "", reads)  # get rid of any plus (digit)(base) reads here, otherwise the base will remain as an alt
+            reads = re.sub(nonBaseRegex, "", reads)  # get rid of anything not a base (we have already replaced the periods and commas)
             foundHashesAtSite = []
             for variant in somaticVariants:
                 if contig == variant[0] and position == variant[1]:
@@ -252,29 +254,22 @@ def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable,
                 supportingDepthDNA = somaticVariantTable[foundHash]["combined"].tumorSupporting
                 expressionDNARatio = (supportingDepthRNA / totalDepthRNA) / (supportingDepthDNA / totalDepthDNA)
                 if not supportingDepthRNA:
-                    supportData[foundHash] = variantDataHandler.RNASupportData(1, supportingDepthRNA, totalDepthRNA,
-                                                                               None)
+                    supportData[foundHash] = variantDataHandler.RNASupportData(1, supportingDepthRNA, totalDepthRNA, None)
                     continue
                 if totalDepthRNA < 10 or supportingDepthRNA < 3:
-                    supportData[foundHash] = variantDataHandler.RNASupportData(2, supportingDepthRNA, totalDepthRNA,
-                                                                               None)
+                    supportData[foundHash] = variantDataHandler.RNASupportData(2, supportingDepthRNA, totalDepthRNA, None)
                     continue
-                if expressionDNARatio > (1 - minDiff / 100) and expressionDNARatio < (
-                        1 + minDiff / 100):  # anything not greater or less than minDiff percent off expected will be called as not significantly different
-                    supportData[foundHash] = variantDataHandler.RNASupportData(4, supportingDepthRNA, totalDepthRNA,
-                                                                               None)
+                if expressionDNARatio > (1 - minDiff / 100) and expressionDNARatio < (1 + minDiff / 100):  # anything not greater or less than minDiff percent off expected will be called as not significantly different
+                    supportData[foundHash] = variantDataHandler.RNASupportData(4, supportingDepthRNA, totalDepthRNA, None)
                     continue
                 oddsRatio, pvalue = scipy.stats.fisher_exact(
                     [[supportingDepthRNA, totalDepthRNA], [supportingDepthDNA, totalDepthDNA]])
                 if pvalue > 0.05:
-                    supportData[foundHash] = variantDataHandler.RNASupportData(4, supportingDepthRNA, totalDepthRNA,
-                                                                               pvalue, oddsRatio)
+                    supportData[foundHash] = variantDataHandler.RNASupportData(4, supportingDepthRNA, totalDepthRNA, pvalue, oddsRatio)
                 elif expressionDNARatio > 1:
-                    supportData[foundHash] = variantDataHandler.RNASupportData(5, supportingDepthRNA, totalDepthRNA,
-                                                                               pvalue, oddsRatio)
+                    supportData[foundHash] = variantDataHandler.RNASupportData(5, supportingDepthRNA, totalDepthRNA, pvalue, oddsRatio)
                 else:
-                    supportData[foundHash] = variantDataHandler.RNASupportData(3, supportingDepthRNA, totalDepthRNA,
-                                                                               pvalue, oddsRatio)
+                    supportData[foundHash] = variantDataHandler.RNASupportData(3, supportingDepthRNA, totalDepthRNA, pvalue, oddsRatio)
     if verbose:
         print("Processed %s lines" % progress)
     mpileup.close()
@@ -319,7 +314,8 @@ def main():
     import variantDataHandler
     if args.parallelChromosomes:
         scatterJobs = runScatterJobs(args)
-        rnaSupportTable = gatherResults(scatterJobs)
+        somaticVariantTable = gatherResults(scatterJobs)
+        somaticVariants = list(somaticVariantTable.keys())
     else:
         somaticsFile = open(args.somaticVariants, 'rb')
         somaticVariantTable = pickle.load(somaticsFile)
@@ -327,16 +323,22 @@ def main():
         somaticVariants = list(somaticVariantTable.keys())
         for key in somaticVariants:
             somaticVariantTable[key]["RNASupport"] = variantDataHandler.RNASupportData(0, 0, 0)
-        rnaSupportTable = checkMPileupForRNASupport(args.mpileupFile, somaticVariants, somaticVariantTable,
-                                                    args.minDiff, args.verbose)
-    for key in list(rnaSupportTable.keys()):
-        somaticVariantTable[key]["RNASupport"] = rnaSupportTable[key]
-    sortVariantDataTuples(somaticVariants)
+        rnaSupportTable = checkMPileupForRNASupport(args.mpileupFile, somaticVariants, somaticVariantTable, args.minDiff, args.verbose, args.chromosome, args.jumpLines)
+        for key in list(rnaSupportTable.keys()):
+            somaticVariantTable[key]["RNASupport"] = rnaSupportTable[key]
+        if args.chromosome:
+            removalList = []
+            for key in somaticVariantsTable:
+                if not key.contig == args.chromosome:
+                    removalList.append(key)
+            for key in removalList:
+                del somaticVariantsTable[key]
     if args.output.upper().endswith(".PKL"):
         outputFile = open(args.output, 'wb')
         pickle.dump(somaticVariantTable, outputFile)
         outputFile.close()
     else:
+        sortVariantDataTuples(somaticVariants)
         outputTable = createOutputTextTable(somaticVariants, somaticVariantTable)
         outputFile = open(args.output, 'w')
         for line in outputTable:
