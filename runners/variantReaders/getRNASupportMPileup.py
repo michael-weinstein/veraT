@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+
 class CheckArgs():  # class that checks arguments and ultimately returns a validated set of arguments to the main program
 
     def __init__(self):
@@ -11,7 +12,7 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         parser.add_argument("-o", "--output", help="Output pickle file name")
         parser.add_argument("-m", "--minDiff", help="Minimum percent difference in expression vs. DNA mutant/wild-type ratios to consider worth scoring", default=10, type=int)
         parser.add_argument("-v", "--verbose", help="Verbose output mode", action='store_true')
-        parser.add_argument("-p", "--parallelChromosomes", help="Run chromosomes in parallel", action='store_true')
+        parser.add_argument("-p", "--noParallelChromosomes", help="Do not run chromosomes in parallel", action='store_false')
         parser.add_argument("--chromosome", help="Specifies the chromosome for analysis.  Should only be used manually for debug.")
         parser.add_argument("--clockoutFile", help="Clockout file for scatter/gather jobs")
         parser.add_argument("--mock", help="Do not actually submit jobs to queue", action='store_true')
@@ -30,7 +31,7 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         self.output = output
         self.minDiff = rawArgs.minDiff
         self.verbose = rawArgs.verbose
-        self.parallelChromosomes = rawArgs.parallelChromosomes
+        self.parallelChromosomes = rawArgs.noParallelChromosomes
         chromosome = rawArgs.chromosome
         if chromosome and "," in chromosome:
             self.chromosome, jumpLines = chromosome.split(",")
@@ -67,17 +68,19 @@ class ScatterJob(object):
         self.args = args
         self.completed = False
 
-    def submit(self, mock=False):
+    def submit(self, args):
         import os
         import sys
         pythonInterpreter = sys.executable
         thisScript = os.path.abspath(__file__)
         mPileupCommand = [pythonInterpreter, thisScript, "--mpileupFile", args.mpileupFile, "--somaticVariants", args.somaticVariants, "--output", self.outputFile, "--minDiff", args.minDiff, "--chromosome", self.chromosome.argument, "--clockoutFile", self.clockoutFile]
+        mPileupCommand = [str(item) for item in mPileupCommand]
+        mPileupCommand = " ".join(mPileupCommand)
         qsubCommand = "qsub -cwd -V -N mpsub%s -l h_data=8G,time=24:00:00 -m a" % self.chromosome.chromosome
         fullCommand = 'echo "%s" | %s' % (mPileupCommand, qsubCommand)
         submitted = False
         attempts = 0
-        if mock:
+        if args.mock:
             print("Mock submit:")
             print(fullCommand)
         else:
@@ -131,7 +134,7 @@ def runScatterJobs(args):
     for chromosome in chromosomeIndex:
         scatterJobs.append(ScatterJob(chromosome, workingDirectory, args))
     for job in scatterJobs:
-        job.submit(args.mock)
+        job.submit(args)
     completed = False
     while not completed:
         completed = True
@@ -177,14 +180,18 @@ def createChromosomeIndex(mpileupFile):
     mpileup = openMPileupFile(mpileupFile)
     lastContig = None
     contigRegex = re.compile("^(.+?)\t")
+    print("Creating contig index")
     for line in mpileup:
         chrGrab = re.match(contigRegex, line)
         chromosome = chrGrab.group(1)
         if not chromosome == lastContig:
+            print("Found contig %s" %chromosome)
             lastContig = chromosome
             chromosomeList.append(ChromosomeIndex(chromosome, currentLine))
         currentLine += 1
     mpileup.close()
+    for line in chromosomeList:
+        print(line)
     return chromosomeList
 
 
@@ -204,6 +211,7 @@ def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable,
     #print("ChrRest: %s" % chromosomeRestriction)
     if jumpLines:
         for i in range(jumpLines):
+            progress += 1
             throwaway = mpileup.readline()
     for line in mpileup:
         if verbose:
@@ -328,11 +336,11 @@ def main():
             somaticVariantTable[key]["RNASupport"] = rnaSupportTable[key]
         if args.chromosome:
             removalList = []
-            for key in somaticVariantsTable:
-                if not key.contig == args.chromosome:
+            for key in somaticVariantTable:
+                if not key[0] == args.chromosome:
                     removalList.append(key)
             for key in removalList:
-                del somaticVariantsTable[key]
+                del somaticVariantTable[key]
     if args.output.upper().endswith(".PKL"):
         outputFile = open(args.output, 'wb')
         pickle.dump(somaticVariantTable, outputFile)
@@ -344,6 +352,9 @@ def main():
         for line in outputTable:
             print("\t".join(line), file=outputFile)
         outputFile.close()
+    if args.clockoutFile:
+        emptyFile = open(args.clockoutFile, 'w')
+        emptyFile.close()
     quit()
 
 
