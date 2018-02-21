@@ -12,7 +12,7 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         parser.add_argument("-o", "--output", help="Output pickle file name")
         parser.add_argument("-m", "--minDiff", help="Minimum percent difference in expression vs. DNA mutant/wild-type ratios to consider worth scoring", default=10, type=int)
         parser.add_argument("-v", "--verbose", help="Verbose output mode", action='store_true')
-        parser.add_argument("-p", "--noParallelChromosomes", help="Do not run chromosomes in parallel", action='store_false')
+        parser.add_argument("-p", "--noParallelChromosomes", help="Do not run chromosomes in parallel", action='store_true')
         parser.add_argument("--chromosome", help="Specifies the chromosome for analysis.  Should only be used manually for debug.")
         parser.add_argument("--clockoutFile", help="Clockout file for scatter/gather jobs")
         parser.add_argument("--mock", help="Do not actually submit jobs to queue", action='store_true')
@@ -31,7 +31,7 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         self.output = output
         self.minDiff = rawArgs.minDiff
         self.verbose = rawArgs.verbose
-        self.parallelChromosomes = rawArgs.noParallelChromosomes
+        self.parallelChromosomes = not rawArgs.noParallelChromosomes
         chromosome = rawArgs.chromosome
         if chromosome and "," in chromosome:
             self.chromosome, jumpLines = chromosome.split(",")
