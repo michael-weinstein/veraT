@@ -32,6 +32,8 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         self.minDiff = rawArgs.minDiff
         self.verbose = rawArgs.verbose
         self.parallelChromosomes = not rawArgs.noParallelChromosomes
+        if rawArgs.chromosome:
+            self.parallelChromosomes = False
         chromosome = rawArgs.chromosome
         if chromosome and "," in chromosome:
             self.chromosome, jumpLines = chromosome.split(",")
