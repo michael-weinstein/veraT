@@ -16,6 +16,7 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         parser.add_argument("--chromosome", help="Specifies the chromosome for analysis.  Should only be used manually for debug.")
         parser.add_argument("--clockoutFile", help="Clockout file for scatter/gather jobs")
         parser.add_argument("--mock", help="Do not actually submit jobs to queue", action='store_true')
+        parser.add_argument("--noCleanup", help="Do not cleanup temporary directory when completed", action = 'store_true')
         rawArgs = parser.parse_args()
         mpileupFile = rawArgs.mpileupFile
         if not os.path.isfile(mpileupFile):
@@ -46,6 +47,7 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
             self.jumpLines = None
         self.clockoutFile = rawArgs.clockoutFile
         self.mock = rawArgs.mock
+        self.noCleanup = rawArgs.noCleanup
 
 
 class ChromosomeIndex(object):
@@ -70,15 +72,16 @@ class ScatterJob(object):
         self.args = args
         self.completed = False
 
-    def submit(self, args):
+    def submit(self, args, tempdir):
         import os
         import sys
+        tempdir = os.path.abspath(tempdir)
         pythonInterpreter = sys.executable
         thisScript = os.path.abspath(__file__)
         mPileupCommand = [pythonInterpreter, thisScript, "--mpileupFile", args.mpileupFile, "--somaticVariants", args.somaticVariants, "--output", self.outputFile, "--minDiff", args.minDiff, "--chromosome", self.chromosome.argument, "--clockoutFile", self.clockoutFile]
         mPileupCommand = [str(item) for item in mPileupCommand]
         mPileupCommand = " ".join(mPileupCommand)
-        qsubCommand = "qsub -cwd -V -N mpsub%s -l h_data=8G,time=24:00:00 -m a" % self.chromosome.chromosome
+        qsubCommand = "qsub -cwd -V -N mpsub%s -l h_data=8G,time=24:00:00 -m a -o %s -e %s" % (self.chromosome.chromosome, tempdir, tempdir)
         fullCommand = 'echo "%s" | %s' % (mPileupCommand, qsubCommand)
         submitted = False
         attempts = 0
@@ -102,8 +105,7 @@ class ScatterJob(object):
             return False
 
 
-def createTempDir(workingFolder,
-                  args=False):  # makes a temporary directory for this run.  Completions will clock out here and results will be reported back to it.
+def createTempDir(workingFolder, args=False):  # makes a temporary directory for this run.  Completions will clock out here and results will be reported back to it.
     if args and args.verbose:  # If the user wants reports on what we're doing...
         print("Creating temporary directory")  # tell them
     import re  # import the library for regular expressions
@@ -136,7 +138,7 @@ def runScatterJobs(args):
     for chromosome in chromosomeIndex:
         scatterJobs.append(ScatterJob(chromosome, workingDirectory, args))
     for job in scatterJobs:
-        job.submit(args)
+        job.submit(args, workingDirectory)
     completed = False
     while not completed:
         completed = True
@@ -153,7 +155,7 @@ def runScatterJobs(args):
         time.sleep(5)
     if args.verbose:
         print("\nDONE!")
-    return scatterJobs
+    return (scatterJobs, workingDirectory)
 
 
 def gatherResults(scatterJobs):
@@ -323,9 +325,13 @@ def main():
     import pickle
     import variantDataHandler
     if args.parallelChromosomes:
-        scatterJobs = runScatterJobs(args)
+        scatterJobs, tempdir = runScatterJobs(args)
         somaticVariantTable = gatherResults(scatterJobs)
         somaticVariants = list(somaticVariantTable.keys())
+        if not args.noCleanup:
+            import shutil
+            print("All jobs completed, removing working directory at %s" %tempdir)
+            shutil.rmtree(tempdir)
     else:
         somaticsFile = open(args.somaticVariants, 'rb')
         somaticVariantTable = pickle.load(somaticsFile)
