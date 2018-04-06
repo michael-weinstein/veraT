@@ -172,7 +172,7 @@ class FastqFile(object):
             self.gzip = False
             if not len(fileNameDotList) == 2:
                 raise FastqDirectoryError("File named %s does not appear to conform to naming convention [name].fastq" %(fileName))
-            if not fileNameDotList [-1] == fastq:
+            if not fileNameDotList [-1] == "fastq":
                 raise FastqDirectoryError("Invalid file passed as FastqFile object: %s" %(fileName))
         
     def analyzeFileName(self, fileName):
