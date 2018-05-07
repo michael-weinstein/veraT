@@ -174,16 +174,16 @@ class BQSR(object):
                             "-L" : self.bedFile,
                             "-BQSR" : self.recalTableOut,
                             "--allow_potentially_misencoded_quality_scores" : self.allowPotentiallyMisencodedQualityScores}
-        gatkArgs = [programPaths["java"], "-Xmx1g", "-jar", gatkPath, flagValuesPre]
+        gatkArgs = [programPaths["java"], "-Xmx4g", "-jar", gatkPath, flagValuesPre]
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         firstPass = argumentFormatter.argumentString
-        gatkArgs = [programPaths["java"], "-Xmx1g", "-jar", gatkPath, flagValuesPost]
+        gatkArgs = [programPaths["java"], "-Xmx4g", "-jar", gatkPath, flagValuesPost]
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         secondPass = argumentFormatter.argumentString
-        gatkArgs = [programPaths["java"], "-Xmx1g", "-jar", gatkPath, flagValuesPlot]
+        gatkArgs = [programPaths["java"], "-Xmx4g", "-jar", gatkPath, flagValuesPlot]
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         plot = argumentFormatter.argumentString
-        gatkArgs = [programPaths["java"], "-Xmx1g", "-jar", gatkPath, flagValuesPrint]
+        gatkArgs = [programPaths["java"], "-Xmx4g", "-jar", gatkPath, flagValuesPrint]
         argumentFormatter = runnerSupport.ArgumentFormatter(gatkArgs)
         printReads = argumentFormatter.argumentString
         return (firstPass, secondPass, plot, printReads)

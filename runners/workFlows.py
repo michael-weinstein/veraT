@@ -338,7 +338,7 @@ class GATKProcessBAM(object):
         bqsr = gatkRunners.BQSR(sampleName, indelRealignment.bamOut, refGenomeFasta, dbSNP, intervals, clobber = indelRealignment.clobber, outputDirectory = outputDir)
         self.bqsrFirstPassCommandIndex = jobList.addJob(bqsr.firstPassCommand)
         self.bqsrExecuteCommandIndex = jobList.addJob(bqsr.printReadsCommand)
-        self.bqsrAnalysisCommandIndex = jobList.addJob([bqsr.secondPassCommand, bqsr.plotCommand])
+        self.bqsrAnalysisCommandIndex = jobList.addJob(bqsr.secondPassCommand)#, bqsr.plotCommand])
         indexRecalBAM = picardRunners.BuildBAMIndex(bqsr.bamOut)
         self.indexRecalBAMCommandIndex = jobList.addJob(indexRecalBAM.indexCommand)
         deleteRealignedBAM = houseKeeping.Delete(indelRealignment.bamOut)
