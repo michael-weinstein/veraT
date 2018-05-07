@@ -185,7 +185,10 @@ def createOutputTable(variantPickle):
             #print("Found %s in oncotatorData" %(str(oncotatorLocus)))
         oncotatorData = variantPickle["fused"]["oncotatorData"][oncotatorLocus]
         dnaReadData = variantPickle["fused"]["variants"][locus]
-        mutantPeptideList = variantPickle["fused"]["neoepitopes"][oncotatorLocus]
+        try:
+            mutantPeptideList = variantPickle["fused"]["neoepitopes"][oncotatorLocus]
+        except KeyError:
+            continue
         wildtypeProteinList = variantPickle["fused"]["wildtype"][oncotatorLocus]
         if usingRNA:
             rnaReadData = variantPickle["fused"]["RNASupport"][locus]
