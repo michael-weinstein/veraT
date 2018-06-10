@@ -134,7 +134,6 @@ class FastqDirectory(object):
                 raise FastqDirectoryError("File naming collision detected between two files below:\n%s\n%s" %(fileInfoDict[file.infoTuple], file))
         return True        
     
-    
 
 class FastqFile(object):
     
@@ -147,6 +146,9 @@ class FastqFile(object):
                 file = os.path.abspath(file)
             self.filePath = file
             self.splitFileAndDirectory(file)
+            if self.gzip:
+                if not self.isValidGzipFile(file):
+                    raise RuntimeError("File %s has the gzip file ending of '.gz' but does not appear to be gzip encoded. Please look into this and correct it." %file)
             self.infoTuple = (self.sampleName, self.lane, self.pairedEnd)
         
     def __str__(self):
@@ -172,8 +174,20 @@ class FastqFile(object):
             self.gzip = False
             if not len(fileNameDotList) == 2:
                 raise FastqDirectoryError("File named %s does not appear to conform to naming convention [name].fastq" %(fileName))
-            if not fileNameDotList [-1] == fastq:
+            if not fileNameDotList [-1] == "fastq":
                 raise FastqDirectoryError("Invalid file passed as FastqFile object: %s" %(fileName))
+
+    def isValidGzipFile(self, filename):
+        import gzip
+        file = gzip.open(filename)
+        try:
+            testline = file.readline()
+            file.close()
+        except OSError:
+            file.close() 
+            return False
+        return True
+
         
     def analyzeFileName(self, fileName):
         fileName = fileName.split(".")[0]

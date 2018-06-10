@@ -59,7 +59,7 @@ class sortSAMtoBAM(object):
                       "VALIDATION_STRINGENCY" : self.validation_stringency,
                       "CREATE_INDEX" : self.create_index,
                       "SORT_ORDER" : self.sort_order}
-        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", picardPath, "SortSam", flagValues]
+        picardArgs = [programPaths["java"], "-Xmx4g", "-jar", picardPath, "SortSam", flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(picardArgs, "=")
         picardCommand = argumentFormatter.argumentString
         return picardCommand
@@ -108,7 +108,7 @@ class MergeSAMFiles(object):
                       "VALIDATION_STRINGENCY" : self.validation_stringency,
                       "CREATE_INDEX" : self.create_index,
                       "SORT_ORDER" : self.sort_order}
-        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", picardPath, "MergeSamFiles", flagValues]
+        picardArgs = [programPaths["java"], "-Xmx4g", "-jar", picardPath, "MergeSamFiles", flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(picardArgs, "=")
         picardCommand = argumentFormatter.argumentString
         return picardCommand
@@ -181,7 +181,7 @@ class AddReadGroups(object):
                       "RGPU" : self.rgpu,
                       "RGSM" : self.rgsm,
                       "RGLB" : self.rglb}
-        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", picardPath, "AddOrReplaceReadGroups", flagValues]
+        picardArgs = [programPaths["java"], "-Xmx4g", "-jar", picardPath, "AddOrReplaceReadGroups", flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(picardArgs, "=")
         picardCommand = argumentFormatter.argumentString
         return picardCommand
@@ -235,7 +235,7 @@ class Deduplicate(object):
                       "VALIDATION_STRINGENCY" : self.validation_stringency,
                       "CREATE_INDEX" : self.create_index,
                       "METRICS_FILE" : self.metricsOut}
-        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", picardPath, "MarkDuplicates", flagValues]
+        picardArgs = [programPaths["java"], "-Xmx4g", "-jar", picardPath, "MarkDuplicates", flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(picardArgs, "=")
         picardCommand = argumentFormatter.argumentString
         return picardCommand
@@ -256,7 +256,7 @@ class BuildBAMIndex(object):
         import runnerSupport
         flagValues = {"I" : self.bamFile,
                       "VALIDATION_STRINGENCY" : self.validation_stringency}
-        picardArgs = [programPaths["java"], "-Xmx1g", "-jar", picardPath, "BuildBamIndex", flagValues]
+        picardArgs = [programPaths["java"], "-Xmx4g", "-jar", picardPath, "BuildBamIndex", flagValues]
         argumentFormatter = runnerSupport.ArgumentFormatter(picardArgs, "=")
         picardCommand = argumentFormatter.argumentString
         return picardCommand

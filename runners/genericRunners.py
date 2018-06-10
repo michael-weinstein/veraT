@@ -10,7 +10,7 @@ genericRunnerPaths = {"python3" : "/u/local/apps/python/3.4.3/bin/python3",  #ho
 
 class HoffmanJob(object):
     
-    def __init__(self, dependencies, jobNumber, jobName, tempDir, emailAddress, emailConditions, cores = 1, memory = 12, maxRetries = 10, mock = False):
+    def __init__(self, dependencies, jobNumber, jobName, tempDir, emailAddress, emailConditions, cores = 1, memory = 16, maxRetries = 10, mock = False):
         import os
         self.dependencies = dependencies
         if type(self.dependencies) in (int, str):

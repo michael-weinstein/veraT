@@ -120,5 +120,6 @@ def main():
         touchFile.close()
     while not (datetime.datetime.now() - startTime).seconds > 120:  #throttle this!
         time.sleep(1)
-    
-main()
+
+if __name__ == "__main__":
+    main()
