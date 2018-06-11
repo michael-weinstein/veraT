@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+defaultLinesPerArrayJob = 10000000
+
 
 class CheckArgs():  # class that checks arguments and ultimately returns a validated set of arguments to the main program
 
@@ -13,10 +15,10 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         parser.add_argument("-m", "--minDiff", help="Minimum percent difference in expression vs. DNA mutant/wild-type ratios to consider worth scoring", default=10, type=int)
         parser.add_argument("-v", "--verbose", help="Verbose output mode", action='store_true')
         parser.add_argument("-p", "--noParallelChromosomes", help="Do not run chromosomes in parallel", action='store_true')
-        parser.add_argument("--chromosome", help="Specifies the chromosome for analysis.  Should only be used manually for debug.")
-        parser.add_argument("--clockoutFile", help="Clockout file for scatter/gather jobs")
+        parser.add_argument("--arrayJob", help="Indicates job is part of a job array.  Should only be entered by user for debugging purposes.", action='store_true')
         parser.add_argument("--mock", help="Do not actually submit jobs to queue", action='store_true')
         parser.add_argument("--noCleanup", help="Do not cleanup temporary directory when completed", action = 'store_true')
+        parser.add_argument("--linesPerJob", help="Number of lines per array job", type = int, default = defaultLinesPerArrayJob)
         rawArgs = parser.parse_args()
         mpileupFile = rawArgs.mpileupFile
         if not os.path.isfile(mpileupFile):
@@ -33,59 +35,83 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         self.minDiff = rawArgs.minDiff
         self.verbose = rawArgs.verbose
         self.parallelChromosomes = not rawArgs.noParallelChromosomes
-        if rawArgs.chromosome:
+        if rawArgs.arrayJob:
+            self.arrayJob = int(os.environ["SGE_TASK_ID"])
+            self.clockoutFile = "%s.done" %self.arrayJob
             self.parallelChromosomes = False
-        chromosome = rawArgs.chromosome
-        if chromosome and "," in chromosome:
-            self.chromosome, jumpLines = chromosome.split(",")
-            try:
-                self.jumpLines = int(jumpLines)
-            except ValueError:
-                raise ValueError("Value of lines to jump must be an integer.")
         else:
-            self.chromosome = chromosome
-            self.jumpLines = None
-        self.clockoutFile = rawArgs.clockoutFile
+            self.clockoutFile = None
+            self.arrayJob = False
+        self.linesPerJob = rawArgs.linesPerJob
         self.mock = rawArgs.mock
         self.noCleanup = rawArgs.noCleanup
+        if not self.arrayJob:
+            self.skipLines = None
+        else:
+            self.skipLines = (self.arrayJob - 1) * self.linesPerJob
 
 
-class ChromosomeIndex(object):
+class ArrayJob(object):
 
-    def __init__(self, chromosome, index):
-        self.chromosome = chromosome
-        self.index = index
-        self.argument = "%s,%s" % (self.chromosome, self.index)
-
-    def __str__(self):
-        return self.argument
-
-
-class ScatterJob(object):
-
-    def __init__(self, chromosome, workingDirectory, args):
-        import os
-        self.chromosome = chromosome
-        self.workingDirectory = workingDirectory
-        self.outputFile = workingDirectory + os.sep + chromosome.chromosome + ".pkl"
-        self.clockoutFile = workingDirectory + os.sep + chromosome.chromosome + ".done"
-        self.args = args
+    def __init__(self, jobNumber, workingDirectory):
+        self.jobNumber = jobNumber
+        self.outputFile = workingDirectory + os.sep + str(jobNumber) + ".pkl"
+        self.clockoutFile = workingDirectory + os.sep + str(jobNumber) + ".done"
         self.completed = False
 
-    def submit(self, args, tempdir):
+    def isDone(self):
+        if self.completed:
+            return True
+        import os
+        self.completed = os.path.isfile(self.clockoutFile)
+        return self.completed
+
+
+class ArrayJobs(object):
+
+    def __init__(self, workingDirectory, args:CheckArgs):
+        import os
+        self.workingDirectory = workingDirectory
+        self.args = args
+        self.completed = False
+        self.neededJobs = calculateNeededJobs(args.mpileupFile, args.linesPerJob)
+        self.completedJobSet = set()
+        self.remainingJobCount = self.neededJobs
+        self.jobList = self.createJobList()
+
+    def createJobList(self):
+        jobList = []
+        for jobNumber in range(1, self.neededJobs + 1):
+            jobList.append(ArrayJob(jobNumber, self.workingDirectory))
+        return jobList
+
+    def isDone(self):
+        allJobsDone = True
+        for job in self.jobList:
+            if job.isDone():
+                self.completedJobSet.add(job.jobNumber)
+                continue
+            else:
+                allJobsDone = False
+        self.remainingJobCount = self.neededJobs - len(self.completedJobSet)
+        self.completed = allJobsDone
+        return self.completed
+
+    def submit(self):
         import os
         import sys
-        tempdir = os.path.abspath(tempdir)
+        self.workingDirectory = os.path.abspath(self.workingDirectory)
         pythonInterpreter = sys.executable
         thisScript = os.path.abspath(__file__)
-        mPileupCommand = [pythonInterpreter, thisScript, "--mpileupFile", args.mpileupFile, "--somaticVariants", args.somaticVariants, "--output", self.outputFile, "--minDiff", args.minDiff, "--chromosome", self.chromosome.argument, "--clockoutFile", self.clockoutFile]
+        arrayArgument = "-t 1-%s" %self.neededJobs
+        mPileupCommand = [pythonInterpreter, thisScript, "--mpileupFile", self.args.mpileupFile, "--somaticVariants", self.args.somaticVariants, "--minDiff", self.args.minDiff]
         mPileupCommand = [str(item) for item in mPileupCommand]
         mPileupCommand = " ".join(mPileupCommand)
-        qsubCommand = "qsub -cwd -V -N mpsub%s -l h_data=8G,time=24:00:00 -m a -o %s -e %s" % (self.chromosome.chromosome, tempdir, tempdir)
+        qsubCommand = "qsub -cwd -V -N mpsubArray %s -l h_data=8G,time=24:00:00 -m a -o %s -e %s" % (arrayArgument, self.workingDirectory, self.workingDirectory)
         fullCommand = 'echo "%s" | %s' % (mPileupCommand, qsubCommand)
         submitted = False
         attempts = 0
-        if args.mock:
+        if self.args.mock:
             print("Mock submit:")
             print(fullCommand)
         else:
@@ -96,16 +122,8 @@ class ScatterJob(object):
             if not submitted:
                 raise RuntimeError("Unable to submit job successfully")
 
-    def checkCompletion(self):
-        import os
-        if os.path.isfile(self.clockoutFile):
-            self.completed = True
-            return True
-        else:
-            return False
 
-
-def createTempDir(workingFolder, args=False):  # makes a temporary directory for this run.  Completions will clock out here and results will be reported back to it.
+def createTempDir(workingFolder, args:CheckArgs=False):  # makes a temporary directory for this run.  Completions will clock out here and results will be reported back to it.
     if args and args.verbose:  # If the user wants reports on what we're doing...
         print("Creating temporary directory")  # tell them
     import re  # import the library for regular expressions
@@ -128,40 +146,26 @@ def createTempDir(workingFolder, args=False):  # makes a temporary directory for
     return tempdir
 
 
-def runScatterJobs(args):
+def runScatterJobs(args:CheckArgs):
     import os
     import time
-    chromosomeIndex = createChromosomeIndex(args.mpileupFile)
-    scatterJobs = []
     outputDirectory = os.path.split(os.path.abspath(args.output))[0] + os.sep
     workingDirectory = createTempDir(outputDirectory, args)
-    for chromosome in chromosomeIndex:
-        scatterJobs.append(ScatterJob(chromosome, workingDirectory, args))
-    for job in scatterJobs:
-        job.submit(args, workingDirectory)
-    completed = False
-    while not completed:
-        completed = True
-        for job in scatterJobs:
-            if not job.completed:
-                if not job.checkCompletion():
-                    completed = False
+    jobArray = ArrayJobs(workingDirectory, args)
+    jobArray.submit()
+    while not jobArray.isDone():
         if args.verbose:
-            completedJobs = 0
-            for job in scatterJobs:
-                if job.completed:
-                    completedJobs += 1
-            print("Awaiting %s of %s jobs       " % (len(scatterJobs) - completedJobs, len(scatterJobs)), end="\r")
+            print("Awaiting %s of %s jobs       " % (jobArray.remainingJobCount, jobArray.neededJobs), end="\r")
         time.sleep(5)
     if args.verbose:
         print("\nDONE!")
-    return (scatterJobs, workingDirectory)
+    return (jobArray, workingDirectory)
 
 
-def gatherResults(scatterJobs):
+def gatherResults(arrayJobs:ArrayJobs):
     import pickle
     rnaSupportTable = {}
-    for job in scatterJobs:
+    for job in arrayJobs.jobList:
         inputFile = open(job.outputFile, 'rb')
         partialData = pickle.load(inputFile)
         inputFile.close()
@@ -177,64 +181,46 @@ def openMPileupFile(filename):
         return open(filename, 'r')
 
 
-def createChromosomeIndex(mpileupFile):
-    import re
-    currentLine = 0
-    chromosomeList = []
+def calculateNeededJobs(mpileupFile, linesPerJob):
+    def countLinesInFile(fileHandle):
+        lineNumber = 0
+        for lineNumber, line in enumerate(fileHandle):
+            pass
+        return lineNumber + 1
     mpileup = openMPileupFile(mpileupFile)
-    lastContig = None
-    contigRegex = re.compile("^(.+?)\t")
-    print("Creating contig index")
-    for line in mpileup:
-        chrGrab = re.match(contigRegex, line)
-        chromosome = chrGrab.group(1)
-        if not chromosome == lastContig:
-            print("Found contig %s" %chromosome)
-            lastContig = chromosome
-            chromosomeList.append(ChromosomeIndex(chromosome, currentLine))
-        currentLine += 1
+    print("Counting lines in file")
+    totalLines = countLinesInFile(mpileup)
     mpileup.close()
-    for line in chromosomeList:
-        print(line)
-    return chromosomeList
+    neededJobs = -(-totalLines // linesPerJob)
+    return neededJobs
 
 
-def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable, minDiff, verbose=False, chromosomeRestriction=False, jumpLines=False):
+def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable, minDiff, verbose=False, arrayJob=False, skipLines=False, linesPerJob=None):
     import variantDataHandler
     import scipy.stats
     import re
     contig = None #initializing this for display in progress reporter
     nonBaseRegex = re.compile("[^ATGC]", re.IGNORECASE)  # compiling this regex now so it only needs to be compiled once
     plusBaseRegex = re.compile("\+\d+[ATGC]+", re.IGNORECASE)
-    contigRegex = re.compile("^(.+?)\t")
     mpileup = openMPileupFile(mpileupFile)
     supportData = {}
     lociOfInterest = [(item[0], str(item[1])) for item in somaticVariants]  # using a string of the position to improve performance, will convert hundreds of times now instead of converting millions of times during mpileup reading
+    skipped = 0
     progress = 0
     startedRegionOfInterest = False
     #print("ChrRest: %s" % chromosomeRestriction)
-    if jumpLines:
-        for i in range(jumpLines):
-            progress += 1
+    if skipLines:
+        for i in range(skipLines):
+            skipped += 1
             throwaway = mpileup.readline()
     for line in mpileup:
         if verbose:
             if progress % 10000 == 0:
                 print("Processed %s lines. Currently on %s" %(progress, contig), end="\r")
             progress += 1
-        if chromosomeRestriction:
-            chrGrab = re.match(contigRegex, line)
-            contig = chrGrab.group(1)
-            inRegionOfInterest = contig == chromosomeRestriction
-            #print("In region: %s" %inRegionOfInterest)
-            if not inRegionOfInterest:
-                if not startedRegionOfInterest:
-                    #print("Skip ", end = "\r")
-                    continue
-                else:
-                    break
-            else:
-                startedRegionOfInterest = True
+        if arrayJob:
+            if progress > linesPerJob:
+                break
         line = line.strip()
         if not line:
             continue
@@ -324,31 +310,23 @@ def main():
     args = CheckArgs()
     import pickle
     import variantDataHandler
+    somaticsFile = open(args.somaticVariants, 'rb')
+    somaticVariantTable = pickle.load(somaticsFile)
+    somaticsFile.close()
+    somaticVariants = list(somaticVariantTable.keys())
+    for key in somaticVariants:
+        somaticVariantTable[key]["RNASupport"] = variantDataHandler.RNASupportData(0, 0, 0)
     if args.parallelChromosomes:
-        scatterJobs, tempdir = runScatterJobs(args)
-        somaticVariantTable = gatherResults(scatterJobs)
-        somaticVariants = list(somaticVariantTable.keys())
+        arrayJobs, tempdir = runScatterJobs(args)
+        rnaSupportTable = gatherResults(arrayJobs)
         if not args.noCleanup:
             import shutil
             print("All jobs completed, removing working directory at %s" %tempdir)
             shutil.rmtree(tempdir)
     else:
-        somaticsFile = open(args.somaticVariants, 'rb')
-        somaticVariantTable = pickle.load(somaticsFile)
-        somaticsFile.close()
-        somaticVariants = list(somaticVariantTable.keys())
-        for key in somaticVariants:
-            somaticVariantTable[key]["RNASupport"] = variantDataHandler.RNASupportData(0, 0, 0)
-        rnaSupportTable = checkMPileupForRNASupport(args.mpileupFile, somaticVariants, somaticVariantTable, args.minDiff, args.verbose, args.chromosome, args.jumpLines)
-        for key in list(rnaSupportTable.keys()):
-            somaticVariantTable[key]["RNASupport"] = rnaSupportTable[key]
-        if args.chromosome:
-            removalList = []
-            for key in somaticVariantTable:
-                if not key[0] == args.chromosome:
-                    removalList.append(key)
-            for key in removalList:
-                del somaticVariantTable[key]
+        rnaSupportTable = checkMPileupForRNASupport(args.mpileupFile, somaticVariants, somaticVariantTable, args.minDiff, args.verbose, args.arrayJob, args.skipLines, args.linesPerJob)
+    for key in list(rnaSupportTable.keys()):
+        somaticVariantTable[key]["RNASupport"] = rnaSupportTable[key]
     if args.output.upper().endswith(".PKL"):
         outputFile = open(args.output, 'wb')
         pickle.dump(somaticVariantTable, outputFile)
