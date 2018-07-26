@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-defaultLinesPerArrayJob = 10000000
+defaultLinesPerArrayJob = 2000000
+killswitchFileName = "/u/home/a/alexhaol/killswitch"
 
 
 class CheckArgs():  # class that checks arguments and ultimately returns a validated set of arguments to the main program
@@ -8,6 +9,9 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
     def __init__(self):
         import argparse
         import os
+        if killswitchFileName:
+            if os.path.isfile(killswitchFileName):
+                quit("Kill switch file found at %s" %killswitchFileName)
         parser = argparse.ArgumentParser()
         parser.add_argument("-f", "--mpileupFile", help="RNA mPileup", required=True)
         parser.add_argument("-s", "--somaticVariants", help="Pickle containing somatic variant analysis from DNA", required=True)
@@ -19,11 +23,14 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         parser.add_argument("--mock", help="Do not actually submit jobs to queue", action='store_true')
         parser.add_argument("--noCleanup", help="Do not cleanup temporary directory when completed", action = 'store_true')
         parser.add_argument("--linesPerJob", help="Number of lines per array job", type = int, default = defaultLinesPerArrayJob)
+        parser.add_argument("--workingDirectory", help="Array job working directory.")
         rawArgs = parser.parse_args()
         mpileupFile = rawArgs.mpileupFile
         if not os.path.isfile(mpileupFile):
             raise FileNotFoundError("Unable to find file %s" % mpileupFile)
-        self.mpileupFile = mpileupFile
+        self.mpileupFile = os.path.abspath(mpileupFile)
+        self.resumePickle = os.path.split(mpileupFile)[0] + os.sep + "mpileupRNAJobArray.pkl"
+        self.resumeWaiting = os.path.isfile(self.resumePickle)
         somaticVariants = rawArgs.somaticVariants
         if not os.path.isfile(somaticVariants):
             raise FileNotFoundError("Unable to find file %s" % somaticVariants)
@@ -36,8 +43,12 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
         self.verbose = rawArgs.verbose
         self.parallelChromosomes = not rawArgs.noParallelChromosomes
         if rawArgs.arrayJob:
+            workingDirectory = rawArgs.workingDirectory
+            if not workingDirectory:
+                raise ValueError("No working directory specified, but one is needed for array jobs to output properly.")
             self.arrayJob = int(os.environ["SGE_TASK_ID"])
-            self.clockoutFile = "%s.done" %self.arrayJob
+            self.clockoutFile = workingDirectory + os.sep + "%s.done" %self.arrayJob
+            self.output = workingDirectory + os.sep + "%s.pkl" %self.arrayJob
             self.parallelChromosomes = False
         else:
             self.clockoutFile = None
@@ -54,6 +65,7 @@ class CheckArgs():  # class that checks arguments and ultimately returns a valid
 class ArrayJob(object):
 
     def __init__(self, jobNumber, workingDirectory):
+        import os
         self.jobNumber = jobNumber
         self.outputFile = workingDirectory + os.sep + str(jobNumber) + ".pkl"
         self.clockoutFile = workingDirectory + os.sep + str(jobNumber) + ".done"
@@ -70,7 +82,6 @@ class ArrayJob(object):
 class ArrayJobs(object):
 
     def __init__(self, workingDirectory, args:CheckArgs):
-        import os
         self.workingDirectory = workingDirectory
         self.args = args
         self.completed = False
@@ -104,10 +115,10 @@ class ArrayJobs(object):
         pythonInterpreter = sys.executable
         thisScript = os.path.abspath(__file__)
         arrayArgument = "-t 1-%s" %self.neededJobs
-        mPileupCommand = [pythonInterpreter, thisScript, "--mpileupFile", self.args.mpileupFile, "--somaticVariants", self.args.somaticVariants, "--minDiff", self.args.minDiff]
+        mPileupCommand = [pythonInterpreter, thisScript, "--mpileupFile", self.args.mpileupFile, "--somaticVariants", self.args.somaticVariants, "--minDiff", self.args.minDiff, "--arrayJob", "--workingDirectory", self.workingDirectory]
         mPileupCommand = [str(item) for item in mPileupCommand]
         mPileupCommand = " ".join(mPileupCommand)
-        qsubCommand = "qsub -cwd -V -N mpsubArray %s -l h_data=8G,time=24:00:00 -m a -o %s -e %s" % (arrayArgument, self.workingDirectory, self.workingDirectory)
+        qsubCommand = "qsub -cwd -V -N mpsubArray %s -l h_data=8G,time=2:00:00 -m a -o %s -e %s" % (arrayArgument, self.workingDirectory, self.workingDirectory)
         fullCommand = 'echo "%s" | %s' % (mPileupCommand, qsubCommand)
         submitted = False
         attempts = 0
@@ -149,17 +160,33 @@ def createTempDir(workingFolder, args:CheckArgs=False):  # makes a temporary dir
 def runScatterJobs(args:CheckArgs):
     import os
     import time
+    import datetime
     outputDirectory = os.path.split(os.path.abspath(args.output))[0] + os.sep
     workingDirectory = createTempDir(outputDirectory, args)
     jobArray = ArrayJobs(workingDirectory, args)
     jobArray.submit()
+    return waitOnJobCompletion(jobArray, args)
+
+
+def waitOnJobCompletion(jobArray:ArrayJobs, args:CheckArgs):
+    import time
+    import datetime
     while not jobArray.isDone():
+        startTime = datetime.datetime.now()
         if args.verbose:
             print("Awaiting %s of %s jobs       " % (jobArray.remainingJobCount, jobArray.neededJobs), end="\r")
-        time.sleep(5)
+        if (datetime.datetime.now() - startTime).seconds / 3600 >= 20:
+            import pickle
+            import sys
+            resumePickleFileHandle = open(args.resumePickle, 'wb')
+            pickle.dump(jobArray, resumePickleFileHandle)
+            resumePickleFileHandle.close()
+            print("Dumped job array pickle to %s. Exiting status 99" %args.resumePickle)
+            sys.exit(99)
+        time.sleep(300)
     if args.verbose:
         print("\nDONE!")
-    return (jobArray, workingDirectory)
+    return (jobArray, jobArray.workingDirectory)
 
 
 def gatherResults(arrayJobs:ArrayJobs):
@@ -317,7 +344,14 @@ def main():
     for key in somaticVariants:
         somaticVariantTable[key]["RNASupport"] = variantDataHandler.RNASupportData(0, 0, 0)
     if args.parallelChromosomes:
-        arrayJobs, tempdir = runScatterJobs(args)
+        if not args.resumeWaiting:
+            arrayJobs, tempdir = runScatterJobs(args)
+        else:
+            import pickle
+            pickleFileHandle = open(args.resumePickle, 'rb')
+            jobArray = pickle.load(pickleFileHandle)
+            pickleFileHandle.close()
+            arrayJobs, tempdir = waitOnJobCompletion(jobArray, args)
         rnaSupportTable = gatherResults(arrayJobs)
         if not args.noCleanup:
             import shutil
