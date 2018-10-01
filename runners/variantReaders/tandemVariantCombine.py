@@ -38,6 +38,9 @@ def makeCombinedAndRNAEntries(variantDict):
         variantDict["combined"][variantHash] = variantDict[variantHash]["combined"]
         if usingRNA:
             variantDict["RNASupport"][variantHash] = variantDict[variantHash]["RNASupport"]
+    for key in variantDict:
+        print(key)
+    tester = variantDict["RNASupport"]
     return variantDict
         
 def collectTandemSNVSites(variantDict, maxDifferenceInPercentage = 0.10, maxFusionLength = 0):

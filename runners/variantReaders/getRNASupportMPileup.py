@@ -196,7 +196,9 @@ def gatherResults(arrayJobs:ArrayJobs):
         inputFile = open(job.outputFile, 'rb')
         partialData = pickle.load(inputFile)
         inputFile.close()
-        rnaSupportTable.update(partialData)
+        for key in partialData:
+            if partialData[key]["RNASupport"]:
+                rnaSupportTable[key] = partialData[key]["RNASupport"]
     return rnaSupportTable
 
 
@@ -222,7 +224,7 @@ def calculateNeededJobs(mpileupFile, linesPerJob):
     return neededJobs
 
 
-def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable, minDiff, verbose=False, arrayJob=False, skipLines=False, linesPerJob=None):
+def checkMPileupForRNASupport(mpileupFile, somaticVariants, somaticVariantTable, minDiff, verbose=False, arrayJob=False, skipLines=False, linesPerJob=None, directOutput = None):
     import variantDataHandler
     import scipy.stats
     import re
