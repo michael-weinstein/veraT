@@ -10,6 +10,6 @@ def openVariantsPickle(fileName):
     return data
 
 if __name__ == "__main__":
-    fileName = "LB2907_DNA.acceptedSomatics.mPileupRNASupport.pkl"
+    fileName = "DF12GD_tumorgDNA.acceptedSomatics.mPileupRNASupport.fused.oncotatorAnnotation.peptides.hlaCalls.pkl"
     data = openVariantsPickle(fileName)
     print("Data headers: %s" %data.keys())

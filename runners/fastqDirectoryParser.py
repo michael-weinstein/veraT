@@ -184,7 +184,7 @@ class FastqFile(object):
             testline = file.readline()
             file.close()
         except OSError:
-            file.close() 
+            file.close()
             return False
         return True
 

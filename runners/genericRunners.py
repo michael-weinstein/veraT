@@ -10,8 +10,31 @@ genericRunnerPaths = {"python3" : "/u/local/apps/python/3.4.3/bin/python3",  #ho
 
 class HoffmanJob(object):
     
-    def __init__(self, dependencies, jobNumber, jobName, tempDir, emailAddress, emailConditions, cores = 1, memory = 16, maxRetries = 10, mock = False):
+    def __init__(self, dependencies, jobNumber, jobName, tempDir, emailAddress, emailConditions, cores = 1, memory = 16, maxRetries = 10, mock = False, forceHighP:bool = False, noHighP:bool = False, jobLength:int = 24, minDefaultCoresForHighP:int = 3):
         import os
+        def getHighPCondition():
+            assert not(forceHighP and noHighP), "Error: A job cannot be both forced no high priority and forced high priority."
+            if not forceHighP and not noHighP:
+                return None
+            elif forceHighP:
+                return True
+            else:
+                return False
+        assert jobLength in range(1, 300), "Job lengths must be between 1 and 300 hours. %s was given" %jobLength
+        self.jobLength = jobLength
+        highPCondition = getHighPCondition()
+        if not highPCondition:
+            if jobLength > 24:
+                if highPCondition == False:
+                    raise RuntimeError("A job was started with a job length of %s hours, but high priority queue was disallowed. It must be 24 hours or less to run without this queue." %jobLength)
+                highPCondition = True
+        if not highPCondition:
+            if cores >= minDefaultCoresForHighP:
+                if not highPCondition == False:
+                    highPCondition = True
+        self.highPCondition = highPCondition
+        if self.highPCondition == True:
+            self.jobLength = max([self.jobLength, 96])
         self.dependencies = dependencies
         if type(self.dependencies) in (int, str):
             self.dependencies = [self.dependencies]
@@ -72,7 +95,11 @@ class HoffmanJob(object):
         peArg = []
         if self.cores > 1:
             peArg = ["-pe", "shared", str(self.cores)]
-        limitsArgs = ["-l", "h_rt=23:59:59,h_data=" + str(self.memory) + "G"]
+        jobLengthForString = str(self.jobLength - 1)
+        highPString = ""
+        if self.highPCondition == True:
+            highPString = "highp,"
+        limitsArgs = ["-l", highPString + "h_rt=%s:59:59,h_data=" %(jobLengthForString) + str(self.memory) + "G"]
         jobRangeArg = ["-t", str(self.jobNumber) + "-" + str(self.jobNumber)]
         outputsDir = self.tempDir + os.sep + "outputs"
         outputsArg = ["-o", outputsDir, "-e", outputsDir]
