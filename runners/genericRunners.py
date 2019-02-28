@@ -8,11 +8,23 @@ genericRunnerPaths = {"python3" : "/u/local/apps/python/3.4.3/bin/python3",  #ho
                       "qsub" : "/u/systems/UGE8.0.1vm/bin/lx-amd64/qsub",
                       "arrayWrapper" : runnerRoot + "/runners/arrayWrapper.py"}
 
+highPUsers = ["alexhaol"]
+
+def userHasHighP():
+    import getpass
+    user = getpass.getuser()
+    if user in highPUsers:
+        return True
+    else:
+        return False
+
 class HoffmanJob(object):
     
     def __init__(self, dependencies, jobNumber, jobName, tempDir, emailAddress, emailConditions, cores = 1, memory = 16, maxRetries = 10, mock = False, forceHighP:bool = False, noHighP:bool = False, jobLength:int = 24, minDefaultCoresForHighP:int = 3):
         import os
         def getHighPCondition():
+            if not userHasHighP():
+                return False
             assert not(forceHighP and noHighP), "Error: A job cannot be both forced no high priority and forced high priority."
             if not forceHighP and not noHighP:
                 return None
@@ -26,9 +38,11 @@ class HoffmanJob(object):
         if not highPCondition:
             if jobLength > 24:
                 if highPCondition == False:
-                    raise RuntimeError("A job was started with a job length of %s hours, but high priority queue was disallowed. It must be 24 hours or less to run without this queue." %jobLength)
-                highPCondition = True
-        if not highPCondition:
+                    print("A job was started with a job length of %s hours, but high priority queue was disallowed. It must be 24 hours or less to run without this queue.  Dropping length back to 24 hours." %jobLength)
+                    self.jobLength = 24
+                else:
+                    highPCondition = True
+        if highPCondition is None:
             if cores >= minDefaultCoresForHighP:
                 if not highPCondition == False:
                     highPCondition = True
